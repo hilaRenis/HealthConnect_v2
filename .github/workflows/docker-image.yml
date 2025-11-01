@@ -31,7 +31,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
+          file: api-gateway/Dockerfile
+#          file: ./Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/my-image-name:latest

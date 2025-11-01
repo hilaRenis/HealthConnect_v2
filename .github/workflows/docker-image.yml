@@ -78,12 +78,82 @@ jobs:
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/auth-service:buildcache
           cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/auth-service:buildcache,mode=max
 
+      # Build and push the Docker image Doctor Service
+      - name: Build and push Doctor Service image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./doctor-service
+          file: doctor-service/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/doctor-service:latest
+            ${{ secrets.DOCKER_USERNAME }}/doctor-service:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/doctor-service:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/doctor-service:buildcache,mode=max
+
+      # Build and push the Docker image Patient Service
+      - name: Build and push Patient Service image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./patient-service
+          file: patient-service/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/patient-service:latest
+            ${{ secrets.DOCKER_USERNAME }}/patient-service:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/patient-service:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/patient-service:buildcache,mode=max
+
+      # Build and push the Docker image Pharmacy Service
+      - name: Build and push Pharmacy Service image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./pharmacy-service
+          file: pharmacy-service/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/pharmacy-service:latest
+            ${{ secrets.DOCKER_USERNAME }}/pharmacy-service:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/pharmacy-service:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/pharmacy-service:buildcache,mode=max
+
+      # Build and push the Docker image Web-Client
+      - name: Build and push Web-Client image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./web-client
+          file: web-client/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/web-client:latest
+            ${{ secrets.DOCKER_USERNAME }}/web-client:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/web-client:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/web-client:buildcache,mode=max
+
       # Verify image built and pushed
       - name: Verify pushed image
         run: docker pull ${{ secrets.DOCKER_USERNAME }}/api-gateway:latest
 
       - name: Verify Admin Service image
         run: docker pull ${{ secrets.DOCKER_USERNAME }}/admin-service:latest
+
+      - name: Verify Appointment Service image
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/appointment-service:latest
+
+      - name: Verify Auth Service image
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/auth-service:latest
+
+      - name: Verify Doctor Service image
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/doctor-service:latest
+
+      - name: Verify Patient Service image
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/patient-service:latest
+
+      - name: Verify Pharmacy Service image
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/pharmacy-service:latest
+
+      - name: Verify Web-Client image
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/web-client:latest
 
 #      - name:  Analyze with SonarQube
 #        uses: SonarSource/sonarqube-scan-action@7295e71c9583053f5bf40e9d4068a0c974603ec8

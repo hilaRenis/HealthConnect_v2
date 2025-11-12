@@ -233,11 +233,12 @@ jobs:
 
       # Run unit tests with coverage using c8
       - name: Run Auth Service Unit Tests with Coverage
+        working-directory: ./
         run: npx c8 --reporter=lcov --reporter=text --report-dir=./coverage node auth-service/test/auth-test.js
 
       # SonarCloud Scan
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+        uses: SonarSource/sonarcloud-github-action@e44258b109568baa0df60ed515909fc6c72cba92
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -248,7 +249,7 @@ jobs:
             -Dsonar.sources=auth-service/src
             -Dsonar.tests=auth-service/test
             -Dsonar.exclusions=**/node_modules/**,**/coverage/**
-            -Dsonar.javascript.lcov.reportPaths=auth-service/coverage/lcov.info
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
 
   build-and-push:
     runs-on: ubuntu-latest

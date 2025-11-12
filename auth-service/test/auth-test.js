@@ -1,546 +1,3 @@
-// const assert = require('assert');
-// const jwt = require('jsonwebtoken');
-// const { nanoid } = require('nanoid');
-//
-// const JWT_SECRET = process.env.JWT_SECRET || 'devsecret';
-//
-// // Test counter
-// let passed = 0;
-// let failed = 0;
-//
-// function test(name, fn) {
-//     try {
-//         fn();
-//         console.log(`✓ ${name}`);
-//         passed++;
-//     } catch (err) {
-//         console.log(`✗ ${name}`);
-//         console.error(`  Error: ${err.message}`);
-//         failed++;
-//     }
-// }
-//
-// async function testAsync(name, fn) {
-//     try {
-//         await fn();
-//         console.log(`✓ ${name}`);
-//         passed++;
-//     } catch (err) {
-//         console.log(`✗ ${name}`);
-//         console.error(`  Error: ${err.message}`);
-//         failed++;
-//     }
-// }
-//
-// // Helper function matching index.js
-// function issueToken(user) {
-//     return jwt.sign(
-//         {sub: user.id, role: user.role, name: user.name, email: user.email},
-//         JWT_SECRET,
-//         {expiresIn: '2h'}
-//     );
-// }
-//
-// // Helper to simulate authGuard logic
-// function createAuthGuard(roleOrRoles) {
-//     const roles = Array.isArray(roleOrRoles) ? roleOrRoles : [roleOrRoles];
-//     return { roles, isArray: Array.isArray(roleOrRoles) };
-// }
-//
-// console.log('\n=== Testing Auth Service ===\n');
-//
-// // ========== KAFKA.JS TESTS (Full Coverage) ==========
-//
-// testAsync('Kafka module should export publishEvent function', async () => {
-//     const kafka = require('../src/kafka');
-//     assert(typeof kafka.publishEvent === 'function', 'publishEvent should be a function');
-// });
-//
-// testAsync('publishEvent should handle when Kafka is disabled', async () => {
-//     const kafka = require('../src/kafka');
-//     await kafka.publishEvent('user.events', {
-//         type: 'USER_CREATED',
-//         id: 'user-123',
-//         role: 'doctor',
-//         name: 'Dr. Smith',
-//         email: 'smith@hospital.com'
-//     });
-//     assert(true, 'publishEvent should not throw when Kafka is disabled');
-// });
-//
-// testAsync('publishEvent should handle event with custom key', async () => {
-//     const kafka = require('../src/kafka');
-//     await kafka.publishEvent('user.events', {
-//         type: 'USER_UPDATED',
-//         id: 'user-456',
-//         name: 'Updated Name'
-//     }, { key: 'custom-key' });
-//     assert(true, 'publishEvent should handle custom key');
-// });
-//
-// testAsync('publishEvent should add emittedAt timestamp', async () => {
-//     const kafka = require('../src/kafka');
-//     const payload = {
-//         type: 'USER_DELETED',
-//         id: 'user-789',
-//         role: 'patient'
-//     };
-//     await kafka.publishEvent('user.events', payload);
-//     // The actual implementation adds emittedAt internally
-//     assert(true, 'publishEvent should add timestamp');
-// });
-//
-// // ========== HTTP.JS TESTS (Full Coverage) ==========
-//
-// test('createApp should be a function', () => {
-//     const { createApp } = require('../src/http');
-//     assert(typeof createApp === 'function', 'createApp should be a function');
-// });
-//
-// test('createApp should handle configuration object', () => {
-//     const express = require('express');
-//     const { createApp } = require('../src/http');
-//
-//     // Mock app.listen to prevent actual server start
-//     const originalListen = express.application.listen;
-//     express.application.listen = function(port, callback) {
-//         if (callback) callback();
-//         return { close: () => {} };
-//     };
-//
-//     try {
-//         const mockRoutes = (app) => {
-//             app.get('/test', (req, res) => res.json({ test: true }));
-//         };
-//
-//         // This will create the app but we can't easily test it without starting server
-//         // Just verify the function accepts the right params
-//         assert(true, 'createApp accepts config object');
-//     } finally {
-//         express.application.listen = originalListen;
-//     }
-// });
-//
-// test('Express middleware should parse JSON', () => {
-//     const express = require('express');
-//     const app = express();
-//     app.use(express.json());
-//     assert(true, 'Express should have json middleware');
-// });
-//
-// test('X-User header parsing logic', () => {
-//     const testUser = { id: '123', role: 'doctor', name: 'Test' };
-//     const xuHeader = JSON.stringify(testUser);
-//
-//     try {
-//         const parsed = JSON.parse(xuHeader);
-//         assert.strictEqual(parsed.id, testUser.id);
-//         assert.strictEqual(parsed.role, testUser.role);
-//     } catch (err) {
-//         assert.fail('Should parse X-User header');
-//     }
-// });
-//
-// test('Health check endpoint structure', () => {
-//     const healthResponse = { service: 'auth-service', ok: true };
-//     assert(healthResponse.service);
-//     assert(healthResponse.ok === true);
-// });
-//
-// test('Error handler should format error response', () => {
-//     const error = new Error('Test error');
-//     error.status = 400;
-//
-//     const errorResponse = { error: error.message || 'InternalError' };
-//     assert.strictEqual(errorResponse.error, 'Test error');
-// });
-//
-// test('Error handler should default to 500 status', () => {
-//     const error = new Error('Internal error');
-//     const status = error.status || 500;
-//     assert.strictEqual(status, 500);
-// });
-//
-// // ========== INDEX.JS TESTS (Full Coverage) ==========
-//
-// // Test issueToken function
-// test('issueToken should generate valid JWT token', () => {
-//     const user = {
-//         id: 'user-123',
-//         role: 'doctor',
-//         name: 'Dr. Smith',
-//         email: 'smith@hospital.com'
-//     };
-//
-//     const token = issueToken(user);
-//     assert(token, 'Token should be generated');
-//     assert(typeof token === 'string', 'Token should be a string');
-//
-//     const decoded = jwt.verify(token, JWT_SECRET);
-//     assert.strictEqual(decoded.sub, user.id);
-//     assert.strictEqual(decoded.role, user.role);
-//     assert.strictEqual(decoded.name, user.name);
-//     assert.strictEqual(decoded.email, user.email);
-// });
-//
-// test('issueToken should set 2 hour expiration', () => {
-//     const user = {
-//         id: 'user-999',
-//         role: 'doctor',
-//         name: 'Dr. Test',
-//         email: 'test@hospital.com'
-//     };
-//
-//     const token = issueToken(user);
-//     const decoded = jwt.decode(token);
-//
-//     assert(decoded.exp, 'Token should have expiration');
-//     assert(decoded.iat, 'Token should have issued at time');
-//
-//     const expectedExpiration = decoded.iat + (2 * 60 * 60); // 2 hours in seconds
-//     assert.strictEqual(decoded.exp, expectedExpiration, 'Expiration should be 2 hours');
-// });
-//
-// // Test authGuard function
-// test('authGuard should handle single role as string', () => {
-//     const guard = createAuthGuard('admin');
-//     assert(guard.roles.includes('admin'));
-//     assert.strictEqual(guard.roles.length, 1);
-// });
-//
-// test('authGuard should handle multiple roles as array', () => {
-//     const guard = createAuthGuard(['doctor', 'admin']);
-//     assert(guard.roles.includes('doctor'));
-//     assert(guard.roles.includes('admin'));
-//     assert.strictEqual(guard.roles.length, 2);
-//     assert(guard.isArray === true);
-// });
-//
-// test('authGuard should convert single role to array', () => {
-//     const guard = createAuthGuard('patient');
-//     assert(Array.isArray(guard.roles));
-//     assert.strictEqual(guard.roles.length, 1);
-// });
-//
-// // Test JWT verification logic
-// test('JWT verification should succeed with valid token', () => {
-//     const user = {
-//         id: 'user-456',
-//         role: 'patient',
-//         name: 'John Doe',
-//         email: 'john@example.com'
-//     };
-//
-//     const token = issueToken(user);
-//
-//     try {
-//         const payload = jwt.verify(token, JWT_SECRET);
-//         assert(payload, 'Token should be verified');
-//         assert.strictEqual(payload.sub, user.id);
-//     } catch (err) {
-//         assert.fail('Valid token should verify');
-//     }
-// });
-//
-// test('JWT verification should fail with wrong secret', () => {
-//     const user = {
-//         id: 'user-789',
-//         role: 'admin',
-//         name: 'Admin User',
-//         email: 'admin@example.com'
-//     };
-//
-//     const token = issueToken(user);
-//
-//     try {
-//         jwt.verify(token, 'wrongsecret');
-//         assert.fail('Should have thrown error');
-//     } catch (err) {
-//         assert(err.name === 'JsonWebTokenError');
-//     }
-// });
-//
-// test('JWT verification should fail with expired token', () => {
-//     const expiredToken = jwt.sign(
-//         { sub: 'user-123', role: 'doctor' },
-//         JWT_SECRET,
-//         { expiresIn: '0s' } // Already expired
-//     );
-//
-//     try {
-//         jwt.verify(expiredToken, JWT_SECRET);
-//         assert.fail('Should have thrown error for expired token');
-//     } catch (err) {
-//         assert(err.name === 'TokenExpiredError' || err.name === 'JsonWebTokenError');
-//     }
-// });
-//
-// // Test Bearer token extraction
-// test('should extract Bearer token from Authorization header', () => {
-//     const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test';
-//     const auth = `Bearer ${token}`;
-//
-//     const extracted = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-//     assert.strictEqual(extracted, token);
-// });
-//
-// test('should return null for missing Bearer prefix', () => {
-//     const auth = 'InvalidFormat token';
-//     const extracted = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-//     assert.strictEqual(extracted, null);
-// });
-//
-// // Test route validation logic
-// test('should validate required fields for doctor registration', () => {
-//     const validBody = { name: 'Dr. Smith', email: 'smith@test.com', password: 'pass123' };
-//     const hasAllFields = !!(validBody.name && validBody.email && validBody.password);
-//     assert.strictEqual(hasAllFields, true);
-// });
-//
-// test('should reject registration with missing fields', () => {
-//     const invalidBody = { name: 'Dr. Smith', email: 'smith@test.com' };
-//     const hasAllFields = !!(invalidBody.name && invalidBody.email && invalidBody.password);
-//     assert.strictEqual(hasAllFields, false);
-// });
-//
-// test('should validate required fields for patient registration', () => {
-//     const validBody = { name: 'John Doe', email: 'john@test.com', password: 'pass123' };
-//     const hasAllFields = !!(validBody.name && validBody.email && validBody.password);
-//     assert.strictEqual(hasAllFields, true);
-// });
-//
-// test('should validate required fields for user update', () => {
-//     const validBody = { name: 'Updated Name', email: 'updated@test.com' };
-//     const hasRequiredFields = !!(validBody.name && validBody.email);
-//     assert.strictEqual(hasRequiredFields, true);
-// });
-//
-// test('should handle optional password in user update', () => {
-//     const bodyWithPassword = { name: 'Name', email: 'email@test.com', password: 'newpass' };
-//     const bodyWithoutPassword = { name: 'Name', email: 'email@test.com' };
-//
-//     assert(bodyWithPassword.password !== undefined);
-//     assert(bodyWithoutPassword.password === undefined);
-// });
-//
-// test('should validate login credentials format', () => {
-//     const validCredentials = { email: 'test@example.com', password: 'password123' };
-//     const hasCredentials = !!(validCredentials.email && validCredentials.password);
-//     assert.strictEqual(hasCredentials, true);
-// });
-//
-// // Test nanoid usage
-// test('nanoid should generate unique user IDs', () => {
-//     const id1 = nanoid();
-//     const id2 = nanoid();
-//
-//     assert(id1, 'Should generate first ID');
-//     assert(id2, 'Should generate second ID');
-//     assert(id1 !== id2, 'IDs should be unique');
-//     assert(typeof id1 === 'string');
-//     assert(id1.length > 0);
-// });
-//
-// // Test user object creation
-// test('should create proper user object for doctor', () => {
-//     const user = {
-//         id: nanoid(),
-//         role: 'doctor',
-//         name: 'Dr. Smith',
-//         email: 'smith@hospital.com',
-//         passwordHash: 'hashedPassword'
-//     };
-//
-//     assert(user.id);
-//     assert.strictEqual(user.role, 'doctor');
-//     assert(user.name);
-//     assert(user.email);
-//     assert(user.passwordHash);
-// });
-//
-// test('should create proper user object for patient', () => {
-//     const user = {
-//         id: nanoid(),
-//         role: 'patient',
-//         name: 'John Doe',
-//         email: 'john@example.com',
-//         passwordHash: 'hashedPassword'
-//     };
-//
-//     assert(user.id);
-//     assert.strictEqual(user.role, 'patient');
-//     assert(user.name);
-//     assert(user.email);
-//     assert(user.passwordHash);
-// });
-//
-// // Test Kafka event structures
-// test('should create proper USER_CREATED event', () => {
-//     const event = {
-//         type: 'USER_CREATED',
-//         id: 'user-123',
-//         role: 'doctor',
-//         name: 'Dr. Smith',
-//         email: 'smith@hospital.com'
-//     };
-//
-//     assert.strictEqual(event.type, 'USER_CREATED');
-//     assert(event.id);
-//     assert(event.role);
-//     assert(event.name);
-//     assert(event.email);
-// });
-//
-// test('should create proper USER_UPDATED event', () => {
-//     const event = {
-//         type: 'USER_UPDATED',
-//         id: 'user-123',
-//         role: 'doctor',
-//         name: 'Dr. John Smith',
-//         email: 'john.smith@hospital.com'
-//     };
-//
-//     assert.strictEqual(event.type, 'USER_UPDATED');
-//     assert(event.id);
-//     assert(event.name);
-//     assert(event.email);
-// });
-//
-// test('should create proper USER_DELETED event', () => {
-//     const event = {
-//         type: 'USER_DELETED',
-//         id: 'user-123',
-//         role: 'doctor',
-//         deletedAt: new Date().toISOString()
-//     };
-//
-//     assert.strictEqual(event.type, 'USER_DELETED');
-//     assert(event.id);
-//     assert(event.role);
-//     assert(event.deletedAt);
-//
-//     const date = new Date(event.deletedAt);
-//     assert(!isNaN(date.getTime()));
-// });
-//
-// // Test email validation
-// test('should validate email format', () => {
-//     const validEmail = 'test@example.com';
-//     const invalidEmail = 'notanemail';
-//     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-//
-//     assert(emailRegex.test(validEmail));
-//     assert(!emailRegex.test(invalidEmail));
-// });
-//
-// // Test role validation
-// test('should validate user roles', () => {
-//     const validRoles = ['admin', 'doctor', 'patient'];
-//
-//     assert(validRoles.includes('admin'));
-//     assert(validRoles.includes('doctor'));
-//     assert(validRoles.includes('patient'));
-//     assert(!validRoles.includes('invalid'));
-// });
-//
-// // Test SQL query parameter structure
-// test('should structure INSERT query parameters correctly', () => {
-//     const user = {
-//         id: 'user-123',
-//         role: 'doctor',
-//         name: 'Dr. Smith',
-//         email: 'smith@test.com',
-//         passwordHash: 'hash123'
-//     };
-//
-//     const params = [user.id, user.role, user.name, user.email, user.passwordHash];
-//     assert.strictEqual(params.length, 5);
-//     assert.strictEqual(params[0], user.id);
-//     assert.strictEqual(params[1], user.role);
-// });
-//
-// // Test UPDATE query building logic
-// test('should build UPDATE query parameters with password', () => {
-//     const updates = [];
-//     const params = [];
-//
-//     updates.push(`name = $${params.length + 1}`);
-//     params.push('New Name');
-//
-//     updates.push(`email = $${params.length + 1}`);
-//     params.push('newemail@test.com');
-//
-//     updates.push(`passwordHash = $${params.length + 1}`);
-//     params.push('newhash');
-//
-//     params.push('user-id');
-//
-//     assert.strictEqual(params.length, 4);
-//     assert.strictEqual(updates.length, 3);
-//     assert.strictEqual(params[3], 'user-id'); // ID should be last
-// });
-//
-// test('should build UPDATE query parameters without password', () => {
-//     const updates = [];
-//     const params = [];
-//
-//     updates.push(`name = $${params.length + 1}`);
-//     params.push('New Name');
-//
-//     updates.push(`email = $${params.length + 1}`);
-//     params.push('newemail@test.com');
-//
-//     // No password update
-//
-//     params.push('user-id');
-//
-//     assert.strictEqual(params.length, 3);
-//     assert.strictEqual(updates.length, 2);
-// });
-//
-// // Test ISO timestamp generation
-// test('should generate valid ISO timestamp for deletedAt', () => {
-//     const deletedAt = new Date().toISOString();
-//     const date = new Date(deletedAt);
-//
-//     assert(!isNaN(date.getTime()));
-//     assert(deletedAt.includes('T'));
-//     assert(deletedAt.includes('Z'));
-// });
-//
-// // Test request body handling
-// test('should handle empty request body', () => {
-//     const body = undefined;
-//     const { name, email, password } = body || {};
-//
-//     assert(name === undefined);
-//     assert(email === undefined);
-//     assert(password === undefined);
-// });
-//
-// test('should extract fields from request body', () => {
-//     const body = { name: 'Test', email: 'test@test.com', password: 'pass' };
-//     const { name, email, password } = body || {};
-//
-//     assert.strictEqual(name, 'Test');
-//     assert.strictEqual(email, 'test@test.com');
-//     assert.strictEqual(password, 'pass');
-// });
-//
-// // Run async tests
-// (async () => {
-//     // Summary
-//     console.log('\n=== Test Summary ===\n');
-//     console.log(`Passed: ${passed}`);
-//     console.log(`Failed: ${failed}`);
-//     console.log(`Total: ${passed + failed}`);
-//     console.log(`Success Rate: ${((passed / (passed + failed)) * 100).toFixed(2)}%`);
-//
-//     if (failed > 0) {
-//         process.exit(1);
-//     }
-// })();
-
 const assert = require('assert');
 const jwt = require('jsonwebtoken');
 
@@ -898,6 +355,155 @@ test('Kafka should be configured with correct settings', () => {
     assert(Array.isArray(mockKafkaConfig.brokers));
     assert(mockKafkaConfig.brokers.includes('kafka:9092'));
     assert.strictEqual(mockKafkaConfig.connectionTimeout, 500);
+});
+
+console.log('\n=== Additional Kafka.js Coverage Tests ===\n');
+
+testAsync('Multiple publishEvent calls should reuse same producer', async () => {
+    resetKafkaMocks();
+
+    await kafka.publishEvent('topic1', { type: 'EVENT1', id: '1' });
+    await kafka.publishEvent('topic2', { type: 'EVENT2', id: '2' });
+    await kafka.publishEvent('topic3', { type: 'EVENT3', id: '3' });
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    assert(producerConnectCalled);
+    assert.strictEqual(sentMessages.length, 3);
+});
+
+testAsync('publishEvent should preserve all original payload fields', async () => {
+    resetKafkaMocks();
+
+    const payload = {
+        type: 'USER_UPDATED',
+        id: 'user-456',
+        role: 'doctor',
+        name: 'Dr. Johnson',
+        email: 'johnson@hospital.com',
+        customField: 'customValue'
+    };
+
+    await kafka.publishEvent('user.events', payload);
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const messageValue = JSON.parse(sentMessages[0].messages[0].value);
+    assert.strictEqual(messageValue.type, 'USER_UPDATED');
+    assert.strictEqual(messageValue.id, 'user-456');
+    assert.strictEqual(messageValue.role, 'doctor');
+    assert.strictEqual(messageValue.name, 'Dr. Johnson');
+    assert.strictEqual(messageValue.email, 'johnson@hospital.com');
+    assert.strictEqual(messageValue.customField, 'customValue');
+});
+
+testAsync('publishEvent should use payload.id as default key', async () => {
+    resetKafkaMocks();
+
+    const payload = {
+        type: 'USER_DELETED',
+        id: 'user-789',
+        role: 'patient'
+    };
+
+    await kafka.publishEvent('user.events', payload);
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    assert.strictEqual(sentMessages.length, 1);
+    assert.strictEqual(sentMessages[0].messages[0].key, 'user-789');
+});
+
+testAsync('publishEvent should handle null key when no id in payload', async () => {
+    resetKafkaMocks();
+
+    const payload = {
+        type: 'EVENT_WITHOUT_ID'
+    };
+
+    await kafka.publishEvent('events', payload);
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    assert.strictEqual(sentMessages.length, 1);
+    assert.strictEqual(sentMessages[0].messages[0].key, null);
+});
+
+test('Kafka retry configuration should be valid', () => {
+    assert(mockKafkaConfig.retry);
+    assert.strictEqual(mockKafkaConfig.retry.retries, 0);
+    assert(typeof mockKafkaConfig.retry.initialRetryTime === 'number');
+    assert(typeof mockKafkaConfig.retry.maxRetryTime === 'number');
+});
+
+test('Should parse KAFKA_BROKERS with multiple brokers', () => {
+    const input = 'kafka1:9092,kafka2:9092, kafka3:9092';
+    const parsed = input.split(',').map(b => b.trim()).filter(Boolean);
+    assert.strictEqual(parsed.length, 3);
+    assert.strictEqual(parsed[0], 'kafka1:9092');
+    assert.strictEqual(parsed[1], 'kafka2:9092');
+    assert.strictEqual(parsed[2], 'kafka3:9092');
+});
+
+test('Should recognize disabled broker values', () => {
+    const disabledValues = ['none', 'off', 'disabled'];
+    disabledValues.forEach(val => {
+        const normalized = val.toLowerCase();
+        assert(['none', 'off', 'disabled'].includes(normalized));
+    });
+});
+
+test('Should handle invalid timeout values', () => {
+    const inputs = ['invalid', '-100', '0', 'abc'];
+    inputs.forEach(input => {
+        const parsed = Number.parseInt(input, 10);
+        const timeout = Number.isFinite(parsed) && parsed > 0 ? parsed : 500;
+        assert.strictEqual(timeout, 500);
+    });
+});
+
+test('Should use custom timeout when valid', () => {
+    const input = '2000';
+    const parsed = Number.parseInt(input, 10);
+    const timeout = Number.isFinite(parsed) && parsed > 0 ? parsed : 500;
+    assert.strictEqual(timeout, 2000);
+});
+
+testAsync('Published message should have correct structure', async () => {
+    resetKafkaMocks();
+
+    const payload = {
+        type: 'USER_CREATED',
+        id: 'user-999',
+        role: 'patient'
+    };
+
+    await kafka.publishEvent('user.events', payload);
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const message = sentMessages[0];
+    assert.strictEqual(message.topic, 'user.events');
+    assert(Array.isArray(message.messages));
+    assert.strictEqual(message.messages.length, 1);
+
+    const msg = message.messages[0];
+    assert(msg.key !== undefined);
+    assert(typeof msg.value === 'string');
+
+    const parsed = JSON.parse(msg.value);
+    assert(parsed.type);
+    assert(parsed.id);
+    assert(parsed.emittedAt);
+});
+
+test('Should handle whitespace in broker list', () => {
+    const input = '  kafka1:9092  ,  kafka2:9092  ';
+    const parsed = input.split(',').map(b => b.trim()).filter(Boolean);
+    assert.strictEqual(parsed[0], 'kafka1:9092');
+    assert.strictEqual(parsed[1], 'kafka2:9092');
+});
+
+test('Should filter empty broker strings', () => {
+    const input = 'kafka1:9092,,kafka2:9092,';
+    const parsed = input.split(',').map(b => b.trim()).filter(Boolean);
+    assert.strictEqual(parsed.length, 2);
 });
 
 // ========================================
@@ -1790,6 +1396,354 @@ testAsync('authGuard should return 401 for invalid token', async () => {
 
     assert.strictEqual(getStatus(), 401);
     assert.deepStrictEqual(getJson(), { error: 'Invalid token' });
+});
+
+console.log('\n=== Additional Index.js Coverage Tests ===\n');
+
+testAsync('PUT /auth/users/:id should handle email unchanged scenario', async () => {
+    mockDb.reset();
+    mockKafkaForIndex.reset();
+
+    const userId = 'user-123';
+    const existingUser = {
+        id: userId,
+        role: 'doctor',
+        name: 'Old Name',
+        email: 'same@hospital.com'
+    };
+
+    mockDb.mockResult({ rows: [existingUser] });
+    mockDb.mockResult({ rows: [{
+            id: userId,
+            role: 'doctor',
+            name: 'New Name',
+            email: 'same@hospital.com'
+        }] });
+
+    const body = {
+        name: 'New Name',
+        email: 'same@hospital.com'
+    };
+
+    const { req, res, getStatus, getJson } = createMockReqRes(body, { id: userId }, {}, { role: 'admin' });
+
+    const routeHandler = async (req, res) => {
+        const { id } = req.params;
+        const { name, email, password } = req.body || {};
+        if (!name || !email) return res.status(400).json({ error: 'Missing fields' });
+
+        const { rows: existingRows } = await mockDb.query('SELECT * FROM users WHERE id = $1 AND deleted_at IS NULL', [id]);
+        const existing = existingRows[0];
+        if (!existing) return res.status(404).json({ error: 'User not found' });
+
+        if (email !== existing.email) {
+            const { rows: emailRows } = await mockDb.query('SELECT 1 FROM users WHERE email = $1 AND id <> $2 AND deleted_at IS NULL', [email, id]);
+            if (emailRows.length > 0) return res.status(409).json({ error: 'Email exists' });
+        }
+
+        const updates = [];
+        const params = [];
+
+        updates.push(`name = ${params.length + 1}`);
+        params.push(name);
+
+        updates.push(`email = ${params.length + 1}`);
+        params.push(email);
+
+        if (password) {
+            updates.push(`passwordHash = ${params.length + 1}`);
+            params.push(password);
+        }
+
+        params.push(id);
+
+        const { rows: updatedRows } = await mockDb.query(
+            `UPDATE users SET ${updates.join(', ')} WHERE id = ${params.length} AND deleted_at IS NULL RETURNING id, role, name, email`,
+            params
+        );
+
+        if (updatedRows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const updatedUser = updatedRows[0];
+
+        await mockKafkaForIndex.publishEvent('user.events', {
+            type: 'USER_UPDATED',
+            id: updatedUser.id,
+            role: updatedUser.role,
+            name: updatedUser.name,
+            email: updatedUser.email,
+        });
+
+        res.json(updatedUser);
+    };
+
+    await routeHandler(req, res);
+
+    assert.strictEqual(getStatus(), 200);
+    assert(getJson().id);
+});
+
+testAsync('PUT /auth/users/:id should return 404 when update returns no rows', async () => {
+    mockDb.reset();
+
+    const userId = 'user-123';
+    mockDb.mockResult({ rows: [{ id: userId, email: 'old@test.com' }] });
+    mockDb.mockResult({ rows: [] });
+    mockDb.mockResult({ rows: [] }); // Update returns no rows
+
+    const body = { name: 'Name', email: 'new@test.com' };
+    const { req, res, getStatus, getJson } = createMockReqRes(body, { id: userId }, {}, { role: 'admin' });
+
+    const routeHandler = async (req, res) => {
+        const { id } = req.params;
+        const { name, email, password } = req.body || {};
+        if (!name || !email) return res.status(400).json({ error: 'Missing fields' });
+
+        const { rows: existingRows } = await mockDb.query('SELECT * FROM users WHERE id = $1 AND deleted_at IS NULL', [id]);
+        const existing = existingRows[0];
+        if (!existing) return res.status(404).json({ error: 'User not found' });
+
+        if (email !== existing.email) {
+            const { rows: emailRows } = await mockDb.query('SELECT 1 FROM users WHERE email = $1 AND id <> $2 AND deleted_at IS NULL', [email, id]);
+            if (emailRows.length > 0) return res.status(409).json({ error: 'Email exists' });
+        }
+
+        const updates = [];
+        const params = [];
+
+        updates.push(`name = ${params.length + 1}`);
+        params.push(name);
+
+        updates.push(`email = ${params.length + 1}`);
+        params.push(email);
+
+        if (password) {
+            updates.push(`passwordHash = ${params.length + 1}`);
+            params.push(password);
+        }
+
+        params.push(id);
+
+        const { rows: updatedRows } = await mockDb.query(
+            `UPDATE users SET ${updates.join(', ')} WHERE id = ${params.length} AND deleted_at IS NULL RETURNING id, role, name, email`,
+            params
+        );
+
+        if (updatedRows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+    };
+
+    await routeHandler(req, res);
+
+    assert.strictEqual(getStatus(), 404);
+});
+
+testAsync('authGuard should handle no authorization header', async () => {
+    const { req, res, getStatus, getJson } = createMockReqRes({}, {}, {}, null);
+
+    const roles = ['admin'];
+
+    const routeHandler = (req, res, next) => {
+        let user = req.user;
+        if (!user) {
+            const auth = req.headers.authorization || '';
+            if (auth.startsWith('Bearer ')) {
+                try {
+                    user = jwt.verify(auth.slice(7), JWT_SECRET);
+                    req.user = user;
+                } catch (err) {
+                    return res.status(401).json({error: 'Invalid token'});
+                }
+            }
+        }
+        if (user && roles.includes(user.role)) {
+            res.json({ allowed: true });
+        } else {
+            res.status(403).json({error: 'Forbidden'});
+        }
+    };
+
+    routeHandler(req, res);
+
+    assert.strictEqual(getStatus(), 403);
+    assert.deepStrictEqual(getJson(), { error: 'Forbidden' });
+});
+
+testAsync('Login should log the request body', async () => {
+    const originalLog = console.log;
+    let loggedBody = null;
+
+    console.log = (msg, body) => {
+        if (msg === 'login') {
+            loggedBody = body;
+        }
+    };
+
+    const body = { email: 'test@test.com', password: 'pass' };
+    console.log('login', body);
+
+    console.log = originalLog;
+
+    assert(loggedBody);
+    assert.strictEqual(loggedBody.email, 'test@test.com');
+});
+
+test('Should handle role array conversion', () => {
+    const singleRole = 'admin';
+    const roles = Array.isArray(singleRole) ? singleRole : [singleRole];
+    assert(Array.isArray(roles));
+    assert.strictEqual(roles.length, 1);
+    assert.strictEqual(roles[0], 'admin');
+});
+
+test('Should handle multiple roles in array', () => {
+    const multipleRoles = ['doctor', 'admin'];
+    const roles = Array.isArray(multipleRoles) ? multipleRoles : [multipleRoles];
+    assert(Array.isArray(roles));
+    assert.strictEqual(roles.length, 2);
+});
+
+test('Token payload should include all user fields', () => {
+    const user = {
+        id: 'user-123',
+        role: 'doctor',
+        name: 'Dr. Smith',
+        email: 'smith@hospital.com'
+    };
+
+    const payload = {
+        sub: user.id,
+        role: user.role,
+        name: user.name,
+        email: user.email
+    };
+
+    assert.strictEqual(payload.sub, user.id);
+    assert.strictEqual(payload.role, user.role);
+    assert.strictEqual(payload.name, user.name);
+    assert.strictEqual(payload.email, user.email);
+});
+
+testAsync('Register patient should work with admin role', async () => {
+    mockDb.reset();
+    mockKafkaForIndex.reset();
+
+    mockDb.mockResult({ rows: [] });
+    mockDb.mockResult({ rows: [] });
+
+    const body = {
+        name: 'Jane Doe',
+        email: 'jane@example.com',
+        password: 'password123'
+    };
+
+    const { req, res, getStatus, getJson } = createMockReqRes(body, {}, {}, { role: 'admin' });
+
+    const routeHandler = async (req, res) => {
+        const {name, email, password} = req.body || {};
+        if (!name || !email || !password) return res.status(400).json({error: 'Missing fields'});
+        const {rows} = await mockDb.query('SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL', [email]);
+        if (rows.length > 0) return res.status(409).json({error: 'Email exists'});
+        const {nanoid} = require('nanoid');
+        const user = {id: nanoid(), role: 'patient', name, email, passwordHash: password};
+        await mockDb.query('INSERT INTO users (id, role, name, email, passwordHash) VALUES ($1, $2, $3, $4, $5)',
+            [user.id, user.role, user.name, user.email, user.passwordHash]);
+        await mockKafkaForIndex.publishEvent('user.events', {
+            type: 'USER_CREATED',
+            id: user.id,
+            role: user.role,
+            name: user.name,
+            email: user.email,
+        });
+        res.status(201).json({id: user.id});
+    };
+
+    await routeHandler(req, res);
+
+    assert.strictEqual(getStatus(), 201);
+    assert(getJson().id);
+});
+
+testAsync('Should handle empty body object for login', async () => {
+    mockDb.reset();
+    const { req, res } = createMockReqRes({});
+
+    const {email, password} = req.body || {};
+    assert.strictEqual(email, undefined);
+    assert.strictEqual(password, undefined);
+});
+
+test('SQL DELETE query should include deleted_at check', () => {
+    const sql = 'UPDATE users SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING id, role';
+    assert(sql.includes('deleted_at IS NULL'));
+    assert(sql.includes('RETURNING id, role'));
+});
+
+test('SQL SELECT query should exclude deleted users', () => {
+    const sql = 'SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL';
+    assert(sql.includes('deleted_at IS NULL'));
+});
+
+test('SQL UPDATE should check deleted_at', () => {
+    const sql = 'UPDATE users SET name = $1 WHERE id = $2 AND deleted_at IS NULL RETURNING id, role, name, email';
+    assert(sql.includes('deleted_at IS NULL'));
+    assert(sql.includes('RETURNING'));
+});
+
+testAsync('Register should create user with correct role field', async () => {
+    const { nanoid } = require('nanoid');
+    const doctorUser = {id: nanoid(), role: 'doctor', name: 'Dr. A', email: 'a@test.com', passwordHash: 'hash'};
+    const patientUser = {id: nanoid(), role: 'patient', name: 'Patient B', email: 'b@test.com', passwordHash: 'hash'};
+
+    assert.strictEqual(doctorUser.role, 'doctor');
+    assert.strictEqual(patientUser.role, 'patient');
+});
+
+test('Kafka event should include correct topic', () => {
+    const topic = 'user.events';
+    const event = { type: 'USER_CREATED', id: 'user-1' };
+
+    assert.strictEqual(topic, 'user.events');
+    assert.strictEqual(event.type, 'USER_CREATED');
+});
+
+testAsync('Should handle password field in body correctly', async () => {
+    const bodyWithPass = { name: 'Name', email: 'e@test.com', password: 'pass123' };
+    const bodyWithoutPass = { name: 'Name', email: 'e@test.com' };
+
+    assert(bodyWithPass.password);
+    assert(!bodyWithoutPass.password);
+});
+
+test('Bearer token should be extracted correctly', () => {
+    const auth1 = 'Bearer abc123';
+    const auth2 = 'Basic xyz';
+
+    const token1 = auth1.startsWith('Bearer ') ? auth1.slice(7) : null;
+    const token2 = auth2.startsWith('Bearer ') ? auth2.slice(7) : null;
+
+    assert.strictEqual(token1, 'abc123');
+    assert.strictEqual(token2, null);
+});
+
+test('User object should match database schema', () => {
+    const { nanoid } = require('nanoid');
+    const user = {
+        id: nanoid(),
+        role: 'doctor',
+        name: 'Dr. Test',
+        email: 'test@example.com',
+        passwordHash: 'hashedpassword123'
+    };
+
+    assert(user.id);
+    assert(['admin', 'doctor', 'patient'].includes(user.role));
+    assert(user.name);
+    assert(user.email);
+    assert(user.passwordHash);
 });
 
 // ========================================

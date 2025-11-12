@@ -232,9 +232,8 @@ jobs:
 
       # Run unit tests with coverage using c8
       - name: Run Auth Service Unit Tests with Coverage
-        shell: bash
         run: |
-          ./node_modules/.bin/c8 --reporter=lcov --reporter=text --report-dir=./coverage node auth-service/test/auth-test.js
+          node ./node_modules/c8/bin/c8.js --reporter=lcov --reporter=text --report-dir=./coverage node auth-service/test/auth-test.js
 
       # SonarCloud Scan
       - name: SonarCloud Scan

@@ -237,7 +237,8 @@ jobs:
       # Run unit tests with coverage using c8
       - name: Run Auth Service Unit Tests with Coverage
         run: |
-          node ./node_modules/c8/bin/c8.js --reporter=lcov --reporter=text --report-dir=./coverage node auth-service/test/auth-test.js
+          cd auth-service
+          node ../node_modules/c8/bin/c8.js --reporter=lcov --reporter=text --report-dir=../coverage node test/auth-test.js
 
       # Debug: List coverage files
       - name: List coverage files
@@ -246,6 +247,8 @@ jobs:
           find . -name "lcov.info" -type f
           echo "Contents of coverage directory:"
           ls -la coverage/ || echo "No coverage directory found"
+          echo "First 20 lines of lcov.info:"
+          head -20 coverage/lcov.info || echo "Could not read lcov.info"
 
       # SonarCloud Scan
       - name: SonarCloud Scan

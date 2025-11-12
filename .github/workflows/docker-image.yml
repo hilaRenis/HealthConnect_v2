@@ -225,9 +225,15 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      # Install auth-service dependencies
+      - name: Install Auth Service dependencies
+        run: |
+          cd auth-service
+          npm install
+
       # Run unit tests with coverage using c8
       - name: Run Auth Service Unit Tests with Coverage
-        run: npx c8 --reporter=lcov --reporter=text node auth-service/test/auth-test.js
+        run: npx c8 --reporter=lcov --reporter=text --report-dir=./coverage node auth-service/test/auth-test.js
 
       # SonarCloud Scan
       - name: SonarCloud Scan

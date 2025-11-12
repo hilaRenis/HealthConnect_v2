@@ -195,7 +195,6 @@
 ##          # Adds more detail to both client and server-side analysis logs, activating DEBUG mode for the scanner, and adding client-side environment variables and system properties to the server-side log of analysis report processing.
 ##          #-Dsonar.verbose= # optional, default is false
 
-
 name: Docker Image CI
 
 on:
@@ -233,8 +232,9 @@ jobs:
 
       # Run unit tests with coverage using c8
       - name: Run Auth Service Unit Tests with Coverage
-        working-directory: ./
-        run: npx c8 --reporter=lcov --reporter=text --report-dir=./coverage node auth-service/test/auth-test.js
+        shell: bash
+        run: |
+          ./node_modules/.bin/c8 --reporter=lcov --reporter=text --report-dir=./coverage node auth-service/test/auth-test.js
 
       # SonarCloud Scan
       - name: SonarCloud Scan

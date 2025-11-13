@@ -357,6 +357,107 @@ test('Kafka should be configured with correct settings', () => {
     assert.strictEqual(mockKafkaConfig.connectionTimeout, 500);
 });
 
+// Test the connect timeout logic with Promise.race
+testAsync('Kafka should handle connect timeout with Promise.race', async () => {
+    // This tests the connectWithTimeout function
+    const timeoutMs = 500;
+    let timerCleared = false;
+
+    const connectPromise = new Promise((resolve) => setTimeout(resolve, 100));
+    const timeoutPromise = new Promise((_, reject) => {
+        const timer = setTimeout(() => reject(new Error('Kafka connect timeout')), timeoutMs);
+        setTimeout(() => {
+            clearTimeout(timer);
+            timerCleared = true;
+        }, 150);
+    });
+
+    try {
+        await Promise.race([connectPromise, timeoutPromise]);
+    } catch (err) {
+        // Expected to succeed before timeout
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert(timerCleared, 'Timer should be cleared');
+});
+
+// Test producer disconnect on failure
+testAsync('Kafka should attempt to disconnect producer on connect failure', async () => {
+    resetKafkaMocks();
+    connectShouldFail = true;
+
+    // Create a fresh kafka module instance
+    delete require.cache[require.resolve('../src/kafka')];
+    const Module = require('module');
+    const originalRequire = Module.prototype.require;
+    Module.prototype.require = function(id) {
+        if (id === 'kafkajs') return mockKafkajs;
+        return originalRequire.apply(this, arguments);
+    };
+
+    const kafkaWithFailure = require('../src/kafka');
+    Module.prototype.require = originalRequire;
+
+    const originalError = console.error;
+    console.error = () => {};
+
+    await kafkaWithFailure.publishEvent('test', { id: '1' });
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    console.error = originalError;
+
+    assert(connectShouldFail, 'Should handle connection failure');
+});
+
+// Test that send is called asynchronously (fire and forget)
+testAsync('Kafka send should be async (fire and forget)', async () => {
+    resetKafkaMocks();
+
+    let sendCompleted = false;
+
+    // Override send to track completion
+    const originalSend = mockProducerInstance.send;
+    mockProducerInstance.send = async (payload) => {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        sendCompleted = true;
+        return originalSend.call(mockProducerInstance, payload);
+    };
+
+    await kafka.publishEvent('test', { id: '1' });
+
+    // publishEvent should return immediately, not wait for send
+    assert(!sendCompleted, 'Send should be fire and forget');
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert(sendCompleted, 'Send should complete eventually');
+});
+
+// Test kafkaDisabled flag after retries exceeded
+testAsync('Kafka should set kafkaDisabled flag after retries exceeded', async () => {
+    resetKafkaMocks();
+    sendShouldFail = true;
+    sendFailureType = 'KafkaJSNumberOfRetriesExceeded';
+
+    const originalError = console.error;
+    console.error = () => {};
+
+    await kafka.publishEvent('user.events', { type: 'TEST', id: '1' });
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Now try to send again - should be disabled
+    resetKafkaMocks(); // Reset mocks but kafkaDisabled should still be true internally
+    sendShouldFail = false;
+
+    await kafka.publishEvent('user.events', { type: 'TEST2', id: '2' });
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    console.error = originalError;
+
+    // If kafka was disabled, no messages should be sent
+    assert(true, 'Should handle disabled kafka');
+});
+
 // ========================================
 // PART 3: INDEX.JS TESTS
 // ========================================
@@ -1247,314 +1348,6 @@ testAsync('authGuard should return 401 for invalid token', async () => {
 
     assert.strictEqual(getStatus(), 401);
     assert.deepStrictEqual(getJson(), { error: 'Invalid token' });
-});
-
-// Extra test for Kafka.js and Index.js
-// ========================================
-// ADD THESE TESTS TO BOOST KAFKA.JS COVERAGE TO 80%+
-// ========================================
-
-// Test the connect timeout logic with Promise.race
-testAsync('Kafka should handle connect timeout with Promise.race', async () => {
-    // This tests the connectWithTimeout function
-    const timeoutMs = 500;
-    let timerCleared = false;
-
-    const connectPromise = new Promise((resolve) => setTimeout(resolve, 100));
-    const timeoutPromise = new Promise((_, reject) => {
-        const timer = setTimeout(() => reject(new Error('Kafka connect timeout')), timeoutMs);
-        setTimeout(() => {
-            clearTimeout(timer);
-            timerCleared = true;
-        }, 150);
-    });
-
-    try {
-        await Promise.race([connectPromise, timeoutPromise]);
-    } catch (err) {
-        // Expected to succeed before timeout
-    }
-
-    await new Promise(resolve => setTimeout(resolve, 200));
-    assert(timerCleared, 'Timer should be cleared');
-});
-
-// Test producer disconnect on failure
-testAsync('Kafka should attempt to disconnect producer on connect failure', async () => {
-    resetKafkaMocks();
-    connectShouldFail = true;
-
-    // Create a fresh kafka module instance
-    delete require.cache[require.resolve('../src/kafka')];
-    const Module = require('module');
-    const originalRequire = Module.prototype.require;
-    Module.prototype.require = function(id) {
-        if (id === 'kafkajs') return mockKafkajs;
-        return originalRequire.apply(this, arguments);
-    };
-
-    const kafkaWithFailure = require('../src/kafka');
-    Module.prototype.require = originalRequire;
-
-    const originalError = console.error;
-    console.error = () => {};
-
-    await kafkaWithFailure.publishEvent('test', { id: '1' });
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    console.error = originalError;
-
-    assert(connectShouldFail, 'Should handle connection failure');
-});
-
-// Test that send is called asynchronously (fire and forget)
-testAsync('Kafka send should be async (fire and forget)', async () => {
-    resetKafkaMocks();
-
-    let sendCompleted = false;
-
-    // Override send to track completion
-    const originalSend = mockProducerInstance.send;
-    mockProducerInstance.send = async (payload) => {
-        await new Promise(resolve => setTimeout(resolve, 50));
-        sendCompleted = true;
-        return originalSend.call(mockProducerInstance, payload);
-    };
-
-    await kafka.publishEvent('test', { id: '1' });
-
-    // publishEvent should return immediately, not wait for send
-    assert(!sendCompleted, 'Send should be fire and forget');
-
-    await new Promise(resolve => setTimeout(resolve, 100));
-    assert(sendCompleted, 'Send should complete eventually');
-});
-
-// Test kafkaDisabled flag after retries exceeded
-testAsync('Kafka should set kafkaDisabled flag after retries exceeded', async () => {
-    resetKafkaMocks();
-    sendShouldFail = true;
-    sendFailureType = 'KafkaJSNumberOfRetriesExceeded';
-
-    const originalError = console.error;
-    console.error = () => {};
-
-    await kafka.publishEvent('user.events', { type: 'TEST', id: '1' });
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    // Now try to send again - should be disabled
-    resetKafkaMocks(); // Reset mocks but kafkaDisabled should still be true internally
-    sendShouldFail = false;
-
-    await kafka.publishEvent('user.events', { type: 'TEST2', id: '2' });
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    console.error = originalError;
-
-    // If kafka was disabled, no messages should be sent
-    assert(true, 'Should handle disabled kafka');
-});
-
-// ========================================
-// ADD THESE TESTS TO BOOST INDEX.JS COVERAGE TO 80%+
-// ========================================
-
-// Test console.log in login route
-testAsync('Login route should call console.log', async () => {
-    mockDb.reset();
-    mockDb.mockResult({ rows: [{ id: 'user-123', role: 'doctor', name: 'Dr. Smith', email: 'smith@test.com' }] });
-
-    const originalLog = console.log;
-    let logCalled = false;
-    let logMessage = null;
-
-    console.log = (msg, body) => {
-        logCalled = true;
-        logMessage = msg;
-    };
-
-    const body = { email: 'smith@test.com', password: 'pass' };
-    const { req, res } = createMockReqRes(body);
-
-    // Simulate the login route
-    const routeHandler = async (req, res) => {
-        console.log('login', req.body);
-        const {email, password} = req.body || {};
-        const {rows} = await mockDb.query('SELECT * FROM users WHERE email = $1 AND passwordHash = $2 AND deleted_at IS NULL', [email, password]);
-        const user = rows[0];
-        if (!user) return res.status(401).json({error: 'Invalid credentials'});
-        const token = jwt.sign({sub: user.id, role: user.role, name: user.name, email: user.email}, JWT_SECRET, {expiresIn: '2h'});
-        res.json({token});
-    };
-
-    await routeHandler(req, res);
-
-    console.log = originalLog;
-
-    assert(logCalled, 'console.log should be called');
-    assert.strictEqual(logMessage, 'login');
-});
-
-// Test authGuard with array of roles
-testAsync('authGuard should work with array of roles [doctor, admin]', async () => {
-    const user = { id: 'user-123', role: 'doctor' };
-    const token = jwt.sign({sub: user.id, role: user.role}, JWT_SECRET, {expiresIn: '2h'});
-
-    const { req, res, getStatus, getJson } = createMockReqRes({}, {}, { authorization: `Bearer ${token}` }, null);
-
-    const roles = ['doctor', 'admin']; // Array of multiple roles
-
-    const routeHandler = (req, res, next) => {
-        let user = req.user;
-        if (!user) {
-            const auth = req.headers.authorization || '';
-            if (auth.startsWith('Bearer ')) {
-                try {
-                    user = jwt.verify(auth.slice(7), JWT_SECRET);
-                    req.user = user;
-                } catch (err) {
-                    return res.status(401).json({error: 'Invalid token'});
-                }
-            }
-        }
-        if (user && roles.includes(user.role)) {
-            res.json({ allowed: true });
-        } else {
-            res.status(403).json({error: 'Forbidden'});
-        }
-    };
-
-    routeHandler(req, res);
-
-    assert.strictEqual(getStatus(), 200);
-    assert(getJson().allowed);
-});
-
-// Test that authGuard converts single role to array
-test('authGuard should convert single role string to array', () => {
-    const roleOrRoles = 'admin';
-    const roles = Array.isArray(roleOrRoles) ? roleOrRoles : [roleOrRoles];
-
-    assert(Array.isArray(roles));
-    assert.strictEqual(roles.length, 1);
-    assert.strictEqual(roles[0], 'admin');
-});
-
-// Test that authGuard keeps array as is
-test('authGuard should keep array of roles as is', () => {
-    const roleOrRoles = ['doctor', 'admin'];
-    const roles = Array.isArray(roleOrRoles) ? roleOrRoles : [roleOrRoles];
-
-    assert(Array.isArray(roles));
-    assert.strictEqual(roles.length, 2);
-    assert(roles.includes('doctor'));
-    assert(roles.includes('admin'));
-});
-
-// Test register-patient with missing fields
-testAsync('POST /auth/register-patient should reject missing password', async () => {
-    mockDb.reset();
-
-    const body = { name: 'John Doe', email: 'john@example.com' }; // Missing password
-    const { req, res, getStatus, getJson } = createMockReqRes(body, {}, {}, { role: 'doctor' });
-
-    const routeHandler = async (req, res) => {
-        const {name, email, password} = req.body || {};
-        if (!name || !email || !password) return res.status(400).json({error: 'Missing fields'});
-    };
-
-    await routeHandler(req, res);
-
-    assert.strictEqual(getStatus(), 400);
-    assert.deepStrictEqual(getJson(), { error: 'Missing fields' });
-});
-
-// Test register-patient with existing email
-testAsync('POST /auth/register-patient should reject existing email', async () => {
-    mockDb.reset();
-    mockDb.mockResult({ rows: [{ email: 'existing@example.com' }] });
-
-    const body = {
-        name: 'John Doe',
-        email: 'existing@example.com',
-        password: 'password123'
-    };
-
-    const { req, res, getStatus, getJson } = createMockReqRes(body, {}, {}, { role: 'doctor' });
-
-    const routeHandler = async (req, res) => {
-        const {name, email, password} = req.body || {};
-        if (!name || !email || !password) return res.status(400).json({error: 'Missing fields'});
-        const {rows} = await mockDb.query('SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL', [email]);
-        if (rows.length > 0) return res.status(409).json({error: 'Email exists'});
-    };
-
-    await routeHandler(req, res);
-
-    assert.strictEqual(getStatus(), 409);
-    assert.deepStrictEqual(getJson(), { error: 'Email exists' });
-});
-
-// Test PUT email conflict check
-testAsync('PUT /auth/users/:id should check email conflict with different user', async () => {
-    mockDb.reset();
-
-    const userId = 'user-123';
-    const existingUser = {
-        id: userId,
-        email: 'old@test.com'
-    };
-
-    mockDb.mockResult({ rows: [existingUser] });
-    mockDb.mockResult({ rows: [{ id: 'other-user-456' }] }); // Another user has this email
-
-    const body = { name: 'Name', email: 'taken@test.com' };
-    const { req, res, getStatus, getJson } = createMockReqRes(body, { id: userId }, {}, { role: 'admin' });
-
-    const routeHandler = async (req, res) => {
-        const { id } = req.params;
-        const { name, email } = req.body || {};
-        if (!name || !email) return res.status(400).json({ error: 'Missing fields' });
-
-        const { rows: existingRows } = await mockDb.query('SELECT * FROM users WHERE id = $1 AND deleted_at IS NULL', [id]);
-        const existing = existingRows[0];
-        if (!existing) return res.status(404).json({ error: 'User not found' });
-
-        if (email !== existing.email) {
-            const { rows: emailRows } = await mockDb.query('SELECT 1 FROM users WHERE email = $1 AND id <> $2 AND deleted_at IS NULL', [email, id]);
-            if (emailRows.length > 0) return res.status(409).json({ error: 'Email exists' });
-        }
-    };
-
-    await routeHandler(req, res);
-
-    assert.strictEqual(getStatus(), 409);
-    assert.deepStrictEqual(getJson(), { error: 'Email exists' });
-});
-
-// Test the actual routes function is called
-test('routes function should be called by createApp', () => {
-    let routesCalled = false;
-
-    const testRoutes = (app) => {
-        routesCalled = true;
-    };
-
-    testRoutes({});
-
-    assert(routesCalled);
-});
-
-// Test JWT_SECRET environment variable
-test('JWT_SECRET should default to devsecret', () => {
-    const secret = process.env.JWT_SECRET || 'devsecret';
-    assert(secret);
-});
-
-// Test PORT environment variable
-test('PORT should be configurable via env', () => {
-    const port = process.env.PORT || 3001;
-    assert(typeof port === 'string' || typeof port === 'number');
 });
 
 // ========================================

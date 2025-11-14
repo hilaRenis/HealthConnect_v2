@@ -173,5 +173,3 @@ function routes(app) {
 }
 
 createApp({name: 'auth-service', routes, port: PORT});
-
-// Test comment to trigger CI

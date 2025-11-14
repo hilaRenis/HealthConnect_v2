@@ -1,3 +1,203 @@
+#name: Docker Image CI
+#
+#on:
+#  push:
+#    branches: [ "main" ]
+#  pull_request:
+#    branches: [ "main" ]
+#
+#jobs:
+#  test:
+#    runs-on: ubuntu-latest
+#
+#    steps:
+#      # Checkout repository
+#      - name: Checkout code
+#        uses: actions/checkout@v4
+#        with:
+#          fetch-depth: 0  # Shallow clones should be disabled for better analysis
+#
+#      # Set up Node.js
+#      - name: Set up Node.js
+#        uses: actions/setup-node@v4
+#        with:
+#          node-version: '18'
+#
+#      # Install dependencies (root level installs c8 for all services)
+#      - name: Install dependencies
+#        run: npm install
+#
+#      # Install auth-service dependencies
+#      - name: Install Auth Service dependencies
+#        run: |
+#          cd auth-service
+#          npm install
+#
+#      # Run unit tests with coverage using c8
+#      - name: Run Auth Service Unit Tests with Coverage
+#        run: |
+#          node ./node_modules/c8/bin/c8.js --reporter=lcov --reporter=text --report-dir=./coverage node auth-service/test/auth-test.js
+#
+#      # SonarCloud Scan
+#      - name: SonarCloud Scan
+#        uses: SonarSource/sonarcloud-github-action@e44258b109568baa0df60ed515909fc6c72cba92
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+#        with:
+#          args: >
+#            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+#            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
+#
+#  build-and-push:
+#    runs-on: ubuntu-latest
+#    needs: test
+#
+#    steps:
+#      # Checkout repository
+#      - name: Checkout code
+#        uses: actions/checkout@v4
+#
+#      # Log in to Docker Hub using secrets
+#      - name: Log in to Docker Hub
+#        uses: docker/login-action@v3
+#        with:
+#          username: ${{ secrets.DOCKER_USERNAME }}
+#          password: ${{ secrets.DOCKER_PASSWORD }}
+#
+#      # Set up Docker Buildx for multi-platform support and caching
+#      - name: Set up Docker Buildx
+#        uses: docker/setup-buildx-action@v3
+#
+#      # Build and push the Docker image Api Gateway
+#      - name: Build and push Api Gateway image
+#        uses: docker/build-push-action@v6
+#        with:
+#          context: ./api-gateway
+#          file: api-gateway/Dockerfile
+#          push: true
+#          tags: |
+#            ${{ secrets.DOCKER_USERNAME }}/api-gateway:latest
+#            ${{ secrets.DOCKER_USERNAME }}/api-gateway:${{ github.sha }}
+#          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/api-gateway:buildcache
+#          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/api-gateway:buildcache,mode=max
+#
+#      # Build and push the Docker image Admin Service
+#      - name: Build and push Admin Service image
+#        uses: docker/build-push-action@v6
+#        with:
+#          context: ./admin-service
+#          file: admin-service/Dockerfile
+#          push: true
+#          tags: |
+#            ${{ secrets.DOCKER_USERNAME }}/admin-service:latest
+#            ${{ secrets.DOCKER_USERNAME }}/admin-service:${{ github.sha }}
+#          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/admin-service:buildcache
+#          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/admin-service:buildcache,mode=max
+#
+#      # Build and push the Docker image Appointment Service
+#      - name: Build and push Appointment Service image
+#        uses: docker/build-push-action@v6
+#        with:
+#          context: ./appointment-service
+#          file: appointment-service/Dockerfile
+#          push: true
+#          tags: |
+#            ${{ secrets.DOCKER_USERNAME }}/appointment-service:latest
+#            ${{ secrets.DOCKER_USERNAME }}/appointment-service:${{ github.sha }}
+#          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/appointment-service:buildcache
+#          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/appointment-service:buildcache,mode=max
+#
+#      # Build and push the Docker image Auth Service
+#      - name: Build and push Auth Service image
+#        uses: docker/build-push-action@v6
+#        with:
+#          context: ./auth-service
+#          file: auth-service/Dockerfile
+#          push: true
+#          tags: |
+#            ${{ secrets.DOCKER_USERNAME }}/auth-service:latest
+#            ${{ secrets.DOCKER_USERNAME }}/auth-service:${{ github.sha }}
+#          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/auth-service:buildcache
+#          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/auth-service:buildcache,mode=max
+#
+#      # Build and push the Docker image Doctor Service
+#      - name: Build and push Doctor Service image
+#        uses: docker/build-push-action@v6
+#        with:
+#          context: ./doctor-service
+#          file: doctor-service/Dockerfile
+#          push: true
+#          tags: |
+#            ${{ secrets.DOCKER_USERNAME }}/doctor-service:latest
+#            ${{ secrets.DOCKER_USERNAME }}/doctor-service:${{ github.sha }}
+#          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/doctor-service:buildcache
+#          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/doctor-service:buildcache,mode=max
+#
+#      # Build and push the Docker image Patient Service
+#      - name: Build and push Patient Service image
+#        uses: docker/build-push-action@v6
+#        with:
+#          context: ./patient-service
+#          file: patient-service/Dockerfile
+#          push: true
+#          tags: |
+#            ${{ secrets.DOCKER_USERNAME }}/patient-service:latest
+#            ${{ secrets.DOCKER_USERNAME }}/patient-service:${{ github.sha }}
+#          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/patient-service:buildcache
+#          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/patient-service:buildcache,mode=max
+#
+#      # Build and push the Docker image Pharmacy Service
+#      - name: Build and push Pharmacy Service image
+#        uses: docker/build-push-action@v6
+#        with:
+#          context: ./pharmacy-service
+#          file: pharmacy-service/Dockerfile
+#          push: true
+#          tags: |
+#            ${{ secrets.DOCKER_USERNAME }}/pharmacy-service:latest
+#            ${{ secrets.DOCKER_USERNAME }}/pharmacy-service:${{ github.sha }}
+#          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/pharmacy-service:buildcache
+#          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/pharmacy-service:buildcache,mode=max
+#
+#      # Build and push the Docker image Web-Client
+#      - name: Build and push Web-Client image
+#        uses: docker/build-push-action@v6
+#        with:
+#          context: ./web-client
+#          file: web-client/Dockerfile
+#          push: true
+#          tags: |
+#            ${{ secrets.DOCKER_USERNAME }}/web-client:latest
+#            ${{ secrets.DOCKER_USERNAME }}/web-client:${{ github.sha }}
+#          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/web-client:buildcache
+#          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/web-client:buildcache,mode=max
+#
+#      # Verify image built and pushed
+#      - name: Verify pushed image
+#        run: docker pull ${{ secrets.DOCKER_USERNAME }}/api-gateway:latest
+#
+#      - name: Verify Admin Service image
+#        run: docker pull ${{ secrets.DOCKER_USERNAME }}/admin-service:latest
+#
+#      - name: Verify Appointment Service image
+#        run: docker pull ${{ secrets.DOCKER_USERNAME }}/appointment-service:latest
+#
+#      - name: Verify Auth Service image
+#        run: docker pull ${{ secrets.DOCKER_USERNAME }}/auth-service:latest
+#
+#      - name: Verify Doctor Service image
+#        run: docker pull ${{ secrets.DOCKER_USERNAME }}/doctor-service:latest
+#
+#      - name: Verify Patient Service image
+#        run: docker pull ${{ secrets.DOCKER_USERNAME }}/patient-service:latest
+#
+#      - name: Verify Pharmacy Service image
+#        run: docker pull ${{ secrets.DOCKER_USERNAME }}/pharmacy-service:latest
+#
+#      - name: Verify Web-Client image
+#        run: docker pull ${{ secrets.DOCKER_USERNAME }}/web-client:latest
+
 name: Docker Image CI
 
 on:
@@ -37,6 +237,14 @@ jobs:
       - name: Run Auth Service Unit Tests with Coverage
         run: |
           node ./node_modules/c8/bin/c8.js --reporter=lcov --reporter=text --report-dir=./coverage node auth-service/test/auth-test.js
+
+      # Run E2E Tests (Mock mode - no Docker needed)
+      - name: Run E2E Tests
+        run: |
+          node web-client/test/frontend-test.js
+        env:
+          USE_MOCK: true
+          API_URL: http://localhost:8080
 
       # SonarCloud Scan
       - name: SonarCloud Scan

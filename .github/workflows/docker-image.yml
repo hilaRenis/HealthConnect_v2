@@ -38,6 +38,14 @@
 #        run: |
 #          node ./node_modules/c8/bin/c8.js --reporter=lcov --reporter=text --report-dir=./coverage node auth-service/test/auth-test.js
 #
+#      # Run E2E Tests (Mock mode - no Docker needed)
+#      - name: Run E2E Tests
+#        run: |
+#          node web-client/test/frontend-test.js
+#        env:
+#          USE_MOCK: true
+#          API_URL: http://localhost:8080
+#
 #      # SonarCloud Scan
 #      - name: SonarCloud Scan
 #        uses: SonarSource/sonarcloud-github-action@e44258b109568baa0df60ed515909fc6c72cba92
@@ -198,7 +206,7 @@
 #      - name: Verify Web-Client image
 #        run: docker pull ${{ secrets.DOCKER_USERNAME }}/web-client:latest
 
-name: Docker Image CI
+name: Docker Image CI - Optimized
 
 on:
   push:
@@ -207,46 +215,99 @@ on:
     branches: [ "main" ]
 
 jobs:
-  test:
+  # Detect which services changed
+  detect-changes:
     runs-on: ubuntu-latest
-
+    outputs:
+      api-gateway: ${{ steps.filter.outputs.api-gateway }}
+      admin-service: ${{ steps.filter.outputs.admin-service }}
+      appointment-service: ${{ steps.filter.outputs.appointment-service }}
+      auth-service: ${{ steps.filter.outputs.auth-service }}
+      doctor-service: ${{ steps.filter.outputs.doctor-service }}
+      patient-service: ${{ steps.filter.outputs.patient-service }}
+      pharmacy-service: ${{ steps.filter.outputs.pharmacy-service }}
+      web-client: ${{ steps.filter.outputs.web-client }}
     steps:
-      # Checkout repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            api-gateway:
+              - 'api-gateway/**'
+            admin-service:
+              - 'admin-service/**'
+            appointment-service:
+              - 'appointment-service/**'
+            auth-service:
+              - 'auth-service/**'
+            doctor-service:
+              - 'doctor-service/**'
+            patient-service:
+              - 'patient-service/**'
+            pharmacy-service:
+              - 'pharmacy-service/**'
+            web-client:
+              - 'web-client/**'
+
+  # Common setup job that always runs
+  setup:
+    runs-on: ubuntu-latest
+    steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Shallow clones should be disabled for better analysis
+          fetch-depth: 0
 
-      # Set up Node.js
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
 
-      # Install dependencies (root level installs c8 for all services)
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Cache node modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            node_modules
+            */node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+  # Auth Service - Test and Build
+  auth-service-test:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, setup]
+    if: needs.detect-changes.outputs.auth-service == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
       - name: Install dependencies
         run: npm install
 
-      # Install auth-service dependencies
       - name: Install Auth Service dependencies
         run: |
           cd auth-service
           npm install
 
-      # Run unit tests with coverage using c8
       - name: Run Auth Service Unit Tests with Coverage
         run: |
           node ./node_modules/c8/bin/c8.js --reporter=lcov --reporter=text --report-dir=./coverage node auth-service/test/auth-test.js
 
-      # Run E2E Tests (Mock mode - no Docker needed)
-      - name: Run E2E Tests
-        run: |
-          node web-client/test/frontend-test.js
-        env:
-          USE_MOCK: true
-          API_URL: http://localhost:8080
-
-      # SonarCloud Scan
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@e44258b109568baa0df60ed515909fc6c72cba92
         env:
@@ -257,66 +318,23 @@ jobs:
             -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
             -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
 
-  build-and-push:
+  auth-service-build:
     runs-on: ubuntu-latest
-    needs: test
-
+    needs: [detect-changes, auth-service-test]
+    if: needs.detect-changes.outputs.auth-service == 'true'
     steps:
-      # Checkout repository
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Log in to Docker Hub using secrets
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # Set up Docker Buildx for multi-platform support and caching
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Build and push the Docker image Api Gateway
-      - name: Build and push Api Gateway image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./api-gateway
-          file: api-gateway/Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/api-gateway:latest
-            ${{ secrets.DOCKER_USERNAME }}/api-gateway:${{ github.sha }}
-          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/api-gateway:buildcache
-          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/api-gateway:buildcache,mode=max
-
-      # Build and push the Docker image Admin Service
-      - name: Build and push Admin Service image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./admin-service
-          file: admin-service/Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/admin-service:latest
-            ${{ secrets.DOCKER_USERNAME }}/admin-service:${{ github.sha }}
-          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/admin-service:buildcache
-          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/admin-service:buildcache,mode=max
-
-      # Build and push the Docker image Appointment Service
-      - name: Build and push Appointment Service image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./appointment-service
-          file: appointment-service/Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/appointment-service:latest
-            ${{ secrets.DOCKER_USERNAME }}/appointment-service:${{ github.sha }}
-          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/appointment-service:buildcache
-          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/appointment-service:buildcache,mode=max
-
-      # Build and push the Docker image Auth Service
       - name: Build and push Auth Service image
         uses: docker/build-push-action@v6
         with:
@@ -329,7 +347,52 @@ jobs:
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/auth-service:buildcache
           cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/auth-service:buildcache,mode=max
 
-      # Build and push the Docker image Doctor Service
+      - name: Verify Auth Service image
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/auth-service:latest
+
+  # Doctor Service - Test and Build
+  doctor-service-test:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, setup]
+    if: needs.detect-changes.outputs.doctor-service == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Doctor Service dependencies
+        run: |
+          cd doctor-service
+          npm install
+
+      - name: Run Doctor Service Tests
+        run: |
+          cd doctor-service
+          # Add your test command here when ready
+          # npm test
+          echo "Doctor service tests - to be implemented"
+
+  doctor-service-build:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, doctor-service-test]
+    if: needs.detect-changes.outputs.doctor-service == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and push Doctor Service image
         uses: docker/build-push-action@v6
         with:
@@ -342,7 +405,52 @@ jobs:
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/doctor-service:buildcache
           cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/doctor-service:buildcache,mode=max
 
-      # Build and push the Docker image Patient Service
+      - name: Verify Doctor Service image
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/doctor-service:latest
+
+  # Patient Service - Test and Build
+  patient-service-test:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, setup]
+    if: needs.detect-changes.outputs.patient-service == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Patient Service dependencies
+        run: |
+          cd patient-service
+          npm install
+
+      - name: Run Patient Service Tests
+        run: |
+          cd patient-service
+          # Add your test command here when ready
+          # npm test
+          echo "Patient service tests - to be implemented"
+
+  patient-service-build:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, patient-service-test]
+    if: needs.detect-changes.outputs.patient-service == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and push Patient Service image
         uses: docker/build-push-action@v6
         with:
@@ -355,7 +463,168 @@ jobs:
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/patient-service:buildcache
           cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/patient-service:buildcache,mode=max
 
-      # Build and push the Docker image Pharmacy Service
+      - name: Verify Patient Service image
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/patient-service:latest
+
+  # Appointment Service - Test and Build
+  appointment-service-test:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, setup]
+    if: needs.detect-changes.outputs.appointment-service == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Appointment Service dependencies
+        run: |
+          cd appointment-service
+          npm install
+
+      - name: Run Appointment Service Tests
+        run: |
+          cd appointment-service
+          # Add your test command here when ready
+          # npm test
+          echo "Appointment service tests - to be implemented"
+
+  appointment-service-build:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, appointment-service-test]
+    if: needs.detect-changes.outputs.appointment-service == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Appointment Service image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./appointment-service
+          file: appointment-service/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/appointment-service:latest
+            ${{ secrets.DOCKER_USERNAME }}/appointment-service:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/appointment-service:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/appointment-service:buildcache,mode=max
+
+      - name: Verify Appointment Service image
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/appointment-service:latest
+
+  # Admin Service - Test and Build
+  admin-service-test:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, setup]
+    if: needs.detect-changes.outputs.admin-service == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Admin Service dependencies
+        run: |
+          cd admin-service
+          npm install
+
+      - name: Run Admin Service Tests
+        run: |
+          cd admin-service
+          # Add your test command here when ready
+          # npm test
+          echo "Admin service tests - to be implemented"
+
+  admin-service-build:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, admin-service-test]
+    if: needs.detect-changes.outputs.admin-service == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Admin Service image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./admin-service
+          file: admin-service/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/admin-service:latest
+            ${{ secrets.DOCKER_USERNAME }}/admin-service:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/admin-service:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/admin-service:buildcache,mode=max
+
+      - name: Verify Admin Service image
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/admin-service:latest
+
+  # Pharmacy Service - Test and Build
+  pharmacy-service-test:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, setup]
+    if: needs.detect-changes.outputs.pharmacy-service == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Pharmacy Service dependencies
+        run: |
+          cd pharmacy-service
+          npm install
+
+      - name: Run Pharmacy Service Tests
+        run: |
+          cd pharmacy-service
+          # Add your test command here when ready
+          # npm test
+          echo "Pharmacy service tests - to be implemented"
+
+  pharmacy-service-build:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, pharmacy-service-test]
+    if: needs.detect-changes.outputs.pharmacy-service == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and push Pharmacy Service image
         uses: docker/build-push-action@v6
         with:
@@ -368,7 +637,108 @@ jobs:
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/pharmacy-service:buildcache
           cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/pharmacy-service:buildcache,mode=max
 
-      # Build and push the Docker image Web-Client
+      - name: Verify Pharmacy Service image
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/pharmacy-service:latest
+
+  # API Gateway - Test and Build
+  api-gateway-test:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, setup]
+    if: needs.detect-changes.outputs.api-gateway == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install API Gateway dependencies
+        run: |
+          cd api-gateway
+          npm install
+
+      - name: Run API Gateway Tests
+        run: |
+          cd api-gateway
+          # Add your test command here when ready
+          # npm test
+          echo "API Gateway tests - to be implemented"
+
+  api-gateway-build:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, api-gateway-test]
+    if: needs.detect-changes.outputs.api-gateway == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Api Gateway image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api-gateway
+          file: api-gateway/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/api-gateway:latest
+            ${{ secrets.DOCKER_USERNAME }}/api-gateway:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/api-gateway:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/api-gateway:buildcache,mode=max
+
+      - name: Verify pushed image
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/api-gateway:latest
+
+  # Web Client - Test and Build
+  web-client-test:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, setup]
+    if: needs.detect-changes.outputs.web-client == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run E2E Tests
+        run: |
+          node web-client/test/frontend-test.js
+        env:
+          USE_MOCK: true
+          API_URL: http://localhost:8080
+
+  web-client-build:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, web-client-test]
+    if: needs.detect-changes.outputs.web-client == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and push Web-Client image
         uses: docker/build-push-action@v6
         with:
@@ -380,28 +750,6 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/web-client:${{ github.sha }}
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/web-client:buildcache
           cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/web-client:buildcache,mode=max
-
-      # Verify image built and pushed
-      - name: Verify pushed image
-        run: docker pull ${{ secrets.DOCKER_USERNAME }}/api-gateway:latest
-
-      - name: Verify Admin Service image
-        run: docker pull ${{ secrets.DOCKER_USERNAME }}/admin-service:latest
-
-      - name: Verify Appointment Service image
-        run: docker pull ${{ secrets.DOCKER_USERNAME }}/appointment-service:latest
-
-      - name: Verify Auth Service image
-        run: docker pull ${{ secrets.DOCKER_USERNAME }}/auth-service:latest
-
-      - name: Verify Doctor Service image
-        run: docker pull ${{ secrets.DOCKER_USERNAME }}/doctor-service:latest
-
-      - name: Verify Patient Service image
-        run: docker pull ${{ secrets.DOCKER_USERNAME }}/patient-service:latest
-
-      - name: Verify Pharmacy Service image
-        run: docker pull ${{ secrets.DOCKER_USERNAME }}/pharmacy-service:latest
 
       - name: Verify Web-Client image
         run: docker pull ${{ secrets.DOCKER_USERNAME }}/web-client:latest

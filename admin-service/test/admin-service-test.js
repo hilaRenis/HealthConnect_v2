@@ -1,4 +1,4 @@
-//Triger test
+//Triger test1
 const assert = require('assert');
 
 let passed = 0;

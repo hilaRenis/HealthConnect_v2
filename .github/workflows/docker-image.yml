@@ -262,23 +262,31 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
 
+      - name: Install root dependencies
+        run: npm install
+
       - name: Install Appointment Service dependencies
         run: |
           cd appointment-service
           npm install
 
-      - name: Run Appointment Service Tests
+      - name: Run Appointment Service Unit Tests with Coverage
         run: |
-          cd appointment-service
-          # Add your test command here when ready
-          # npm test
-          echo "Appointment service tests - to be implemented"
+          node ./node_modules/c8/bin/c8.js --reporter=lcov --reporter=text --report-dir=./appointment-coverage node appointment-service/test/appointment-test.js
+
+      - name: Upload Appointment Coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: appointment-coverage
+          path: appointment-coverage/
 
   appointment-service-build:
     runs-on: ubuntu-latest
@@ -521,11 +529,12 @@ jobs:
   # SonarCloud Analysis - Runs after all tests complete
   sonarcloud-analysis:
     runs-on: ubuntu-latest
-    needs: [detect-changes, auth-service-test, admin-service-test]
+    needs: [detect-changes, auth-service-test, admin-service-test, appointment-service-test]
     if: |
       always() && 
       (needs.auth-service-test.result == 'success' || 
-       needs.admin-service-test.result == 'success')
+       needs.admin-service-test.result == 'success' ||
+       needs.appointment-service-test.result == 'success')
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -546,6 +555,14 @@ jobs:
         with:
           name: admin-coverage
           path: admin-coverage/
+        continue-on-error: true
+
+      - name: Download Appointment Coverage
+        uses: actions/download-artifact@v4
+        if: needs.detect-changes.outputs.appointment-service == 'true'
+        with:
+          name: appointment-coverage
+          path: appointment-coverage/
         continue-on-error: true
 
       - name: SonarCloud Scan

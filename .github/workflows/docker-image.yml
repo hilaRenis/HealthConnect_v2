@@ -164,7 +164,7 @@ jobs:
 
       - name: Run Doctor Service Unit Tests with Coverage
         run: |
-          node ./node_modules/c8/bin/c8.js --reporter=lcov --reporter=text --report-dir=./doctor-coverage node doctor-service/test/doctor-test.js
+          node ./node_modules/c8/bin/c8.js --reporter=lcov --reporter=text --report-dir=./doctor-coverage node doctor-service/test/doctor-service-test.js
 
       - name: Upload Doctor Coverage
         uses: actions/upload-artifact@v4

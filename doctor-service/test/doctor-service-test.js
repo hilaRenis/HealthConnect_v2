@@ -1,4 +1,3 @@
-// doctor-service/test/doctor-test.js
 const assert = require('assert');
 
 // Mock database

@@ -1,4 +1,3 @@
-//Trigger to run test
 const assert = require('assert');
 
 let passed = 0;

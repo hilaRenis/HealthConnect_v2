@@ -115,10 +115,10 @@ async function runTests() {
             mockDb.reset();
             mockKafka.reset();
             await fn();
-            console.log(`${name}`);
+            console.log(` ${name}`);
             passed++;
         } catch (error) {
-            console.error(`${name}`);
+            console.error(` ${name}`);
             console.error(`   ${error.message}`);
             if (error.stack) {
                 console.error(`   ${error.stack.split('\n')[1]}`);
@@ -201,22 +201,35 @@ async function runTests() {
 
     // Patient management endpoints
     await test('GET /patients - doctor lists patients', async () => {
-        mockDb.mockResults.SELECT = {
-            rows: [
-                {
-                    id: 'patient-1',
-                    userid: 'user-1',
-                    name: 'John Doe',
-                    email: 'john@example.com',
-                    dob: '1990-01-01',
-                    conditions: 'None',
-                },
-            ],
+        // First query returns patient data, second query returns count
+        let queryCount = 0;
+        const originalQuery = mockDb.query.bind(mockDb);
+        mockDb.query = function(sql, params) {
+            queryCount++;
+            if (sql.toLowerCase().includes('count(*)')) {
+                // COUNT query
+                return Promise.resolve({ rows: [{ count: '1' }] });
+            }
+            // Regular SELECT query
+            return Promise.resolve({
+                rows: [
+                    {
+                        id: 'patient-1',
+                        userid: 'user-1',
+                        name: 'John Doe',
+                        email: 'john@example.com',
+                        dob: '1990-01-01',
+                        conditions: 'None',
+                    },
+                ],
+            });
         };
 
         const res = await makeRequest('GET', '/patients', {
             user: { sub: 'doctor-123', role: 'doctor' },
         });
+
+        mockDb.query = originalQuery; // Restore original
 
         assert.strictEqual(res.status, 200);
         assert(res.body.data);
@@ -224,32 +237,56 @@ async function runTests() {
     });
 
     await test('GET /patients - supports pagination', async () => {
-        mockDb.mockResults.SELECT = { rows: [] };
+        const originalQuery = mockDb.query.bind(mockDb);
+        mockDb.query = function(sql, params) {
+            if (sql.toLowerCase().includes('count(*)')) {
+                return Promise.resolve({ rows: [{ count: '0' }] });
+            }
+            return Promise.resolve({ rows: [] });
+        };
 
         const res = await makeRequest('GET', '/patients?page=2&limit=5', {
             user: { sub: 'doctor-123', role: 'doctor' },
         });
+
+        mockDb.query = originalQuery;
 
         assert.strictEqual(res.status, 200);
         assert(res.body.data);
     });
 
     await test('GET /patients - supports sorting', async () => {
-        mockDb.mockResults.SELECT = { rows: [] };
+        const originalQuery = mockDb.query.bind(mockDb);
+        mockDb.query = function(sql, params) {
+            if (sql.toLowerCase().includes('count(*)')) {
+                return Promise.resolve({ rows: [{ count: '0' }] });
+            }
+            return Promise.resolve({ rows: [] });
+        };
 
         const res = await makeRequest('GET', '/patients?sortBy=email&order=desc', {
             user: { sub: 'doctor-123', role: 'doctor' },
         });
 
+        mockDb.query = originalQuery;
+
         assert.strictEqual(res.status, 200);
     });
 
     await test('GET /patients - supports search', async () => {
-        mockDb.mockResults.SELECT = { rows: [] };
+        const originalQuery = mockDb.query.bind(mockDb);
+        mockDb.query = function(sql, params) {
+            if (sql.toLowerCase().includes('count(*)')) {
+                return Promise.resolve({ rows: [{ count: '0' }] });
+            }
+            return Promise.resolve({ rows: [] });
+        };
 
         const res = await makeRequest('GET', '/patients?search=john', {
             user: { sub: 'doctor-123', role: 'doctor' },
         });
+
+        mockDb.query = originalQuery;
 
         assert.strictEqual(res.status, 200);
     });

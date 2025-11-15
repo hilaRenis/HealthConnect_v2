@@ -1,581 +1,444 @@
-//Triger test1
 const assert = require('assert');
+const http = require('http');
 const jwt = require('jsonwebtoken');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'devsecret';
 
 let passed = 0;
 let failed = 0;
 
-function test(name, fn) {
-    try {
-        fn();
-        console.log(`✓ ${name}`);
-        passed++;
-    } catch (err) {
-        console.log(`✗ ${name}`);
-        console.error(`  Error: ${err.message}`);
-        failed++;
+const JWT_SECRET = process.env.JWT_SECRET || 'devsecret';
+
+// Mock database
+const mockDb = {
+    queries: [],
+    mockResults: {},
+    query: async function(sql, params) {
+        this.queries.push({ sql, params });
+        const sqlLower = sql.toLowerCase();
+
+        if (sqlLower.includes('insert')) {
+            return this.mockResults['INSERT'] || { rows: [], rowCount: 1 };
+        }
+        if (sqlLower.includes('update')) {
+            return this.mockResults['UPDATE'] || { rows: [], rowCount: 1 };
+        }
+        if (sqlLower.includes('select')) {
+            return this.mockResults['SELECT'] || { rows: [] };
+        }
+
+        return { rows: [], rowCount: 0 };
+    },
+    reset() {
+        this.queries = [];
+        this.mockResults = {};
     }
+};
+
+// Mock Kafka
+const mockKafka = {
+    publishedEvents: [],
+    publishEvent: async function(topic, payload, options) {
+        this.publishedEvents.push({ topic, payload, options });
+    },
+    startConsumer: async function() {
+        return {};
+    },
+    reset() {
+        this.publishedEvents = [];
+    }
+};
+
+// Setup mocks
+require.cache[require.resolve('../auth-service/src/db')] = { exports: mockDb };
+require.cache[require.resolve('../auth-service/src/kafka')] = { exports: mockKafka };
+require.cache[require.resolve('nanoid')] = { exports: { nanoid: () => 'test-user-123' } };
+
+// Set environment
+process.env.PORT = '3001';
+process.env.JWT_SECRET = JWT_SECRET;
+process.env.KAFKA_BROKERS = 'none';
+
+// Load the service
+delete require.cache[require.resolve('../auth-service/src/index')];
+require('../auth-service/src/index');
+
+function makeRequest(method, path, options = {}) {
+    return new Promise((resolve, reject) => {
+        const { body, headers = {}, user } = options;
+
+        if (user) {
+            headers['x-user'] = JSON.stringify(user);
+        }
+
+        const req = http.request({
+            hostname: 'localhost',
+            port: 3001,
+            path,
+            method,
+            headers: {
+                'Content-Type': 'application/json',
+                ...headers
+            }
+        }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                resolve({
+                    status: res.statusCode,
+                    body: data ? JSON.parse(data) : null
+                });
+            });
+        });
+
+        req.on('error', reject);
+        if (body) req.write(JSON.stringify(body));
+        req.end();
+    });
 }
 
-async function testAsync(name, fn) {
+async function test(name, fn) {
     try {
+        mockDb.reset();
+        mockKafka.reset();
         await fn();
         console.log(`✓ ${name}`);
         passed++;
-    } catch (err) {
-        console.log(`✗ ${name}`);
-        console.error(`  Error: ${err.message}`);
+    } catch (error) {
+        console.error(`✗ ${name}`);
+        console.error(`  ${error.message}`);
         failed++;
     }
 }
 
-// HTTP.JS TESTS
+async function runTests() {
+    console.log('\n=== Auth Service Tests ===\n');
 
-console.log('\n=== Testing http.js ===\n');
+    await new Promise(resolve => setTimeout(resolve, 200));
 
-const express = require('express');
-let mockApp;
-let middlewares = [];
-let routes = {};
+    // Health check
+    await test('GET /health', async () => {
+        const res = await makeRequest('GET', '/health');
+        assert.strictEqual(res.status, 200);
+        assert.strictEqual(res.body.service, 'auth-service');
+    });
 
-function resetHttpMocks() {
-    middlewares = [];
-    routes = {};
-    mockApp = {
-        use: function(handler) {
-            middlewares.push(handler);
-            return this;
-        },
-        get: function(path, handler) {
-            routes[`GET ${path}`] = handler;
-            return this;
-        },
-        post: function(path, handler) {
-            routes[`POST ${path}`] = handler;
-            return this;
-        },
-        put: function(path, handler) {
-            routes[`PUT ${path}`] = handler;
-            return this;
-        },
-        delete: function(path, handler) {
-            routes[`DELETE ${path}`] = handler;
-            return this;
-        },
-        listen: function(port, callback) {
-            if (callback) callback();
-            return { close: () => {} };
-        }
-    };
-}
+    // Register doctor
+    await test('POST /auth/register-doctor - admin registers doctor', async () => {
+        mockDb.mockResults.SELECT = { rows: [] };
 
-const originalExpress = express;
-function mockExpressFactory() {
-    resetHttpMocks();
-    return mockApp;
-}
-mockExpressFactory.json = originalExpress.json;
+        const res = await makeRequest('POST', '/auth/register-doctor', {
+            user: { sub: 'admin-1', role: 'admin' },
+            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'pass123' }
+        });
 
-const Module = require('module');
-const originalRequire = Module.prototype.require;
-Module.prototype.require = function(id) {
-    if (id === 'express') return mockExpressFactory;
-    return originalRequire.apply(this, arguments);
-};
+        assert.strictEqual(res.status, 201);
+        assert.strictEqual(res.body.id, 'test-user-123');
+    });
 
-delete require.cache[require.resolve('../src/http')];
-const { createApp } = require('../src/http');
-Module.prototype.require = originalRequire;
+    await test('POST /auth/register-doctor - fails without required fields', async () => {
+        const res = await makeRequest('POST', '/auth/register-doctor', {
+            user: { sub: 'admin-1', role: 'admin' },
+            body: { name: 'Dr. Smith' }
+        });
 
-test('http.js - createApp should execute all code paths', () => {
-    resetHttpMocks();
-    createApp({ name: 'test-service', routes: (app) => {}, port: 3000 });
+        assert.strictEqual(res.status, 400);
+    });
 
-    // Test X-User middleware with valid JSON
-    const xuMiddleware = middlewares[1];
-    const req1 = { headers: { 'x-user': '{"id":"123","role":"admin"}' }, user: undefined };
-    xuMiddleware(req1, {}, () => {});
-    assert.strictEqual(req1.user.id, '123');
-
-    // Test X-User middleware with invalid JSON (catch block)
-    const req2 = { headers: { 'x-user': 'invalid' }, user: undefined };
-    xuMiddleware(req2, {}, () => {});
-    assert.strictEqual(req2.user, undefined);
-
-    // Test X-User middleware without header
-    const req3 = { headers: {}, user: undefined };
-    xuMiddleware(req3, {}, () => {});
-    assert.strictEqual(req3.user, undefined);
-
-    // Test health endpoint
-    const healthHandler = routes['GET /health'];
-    let healthData;
-    healthHandler({}, { json: (data) => { healthData = data; } });
-    assert.deepStrictEqual(healthData, { service: 'test-service', ok: true });
-
-    // Test error handler with status
-    const errorHandler = middlewares[middlewares.length - 1];
-    const err1 = new Error('Test error');
-    err1.status = 400;
-    let status1, json1;
-    const originalError = console.error;
-    console.error = () => {};
-    errorHandler(err1, {}, { status: (s) => { status1 = s; return { json: (j) => { json1 = j; } }; } }, () => {});
-    console.error = originalError;
-    assert.strictEqual(status1, 400);
-
-    // Test error handler without status (default 500)
-    const err2 = new Error('Internal');
-    let status2;
-    console.error = () => {};
-    errorHandler(err2, {}, { status: (s) => { status2 = s; return { json: () => {} }; } }, () => {});
-    console.error = originalError;
-    assert.strictEqual(status2, 500);
-
-    // Test error handler without message
-    const err3 = {};
-    let json3;
-    console.error = () => {};
-    errorHandler(err3, {}, { status: () => ({ json: (j) => { json3 = j; } }) }, () => {});
-    console.error = originalError;
-    assert.deepStrictEqual(json3, { error: 'InternalError' });
-});
-
-// KAFKA.JS TESTS
-
-console.log('\n=== Testing kafka.js ===\n');
-
-let mockProducerInstance;
-let producerConnectCalled = false;
-let sentMessages = [];
-let connectShouldFail = false;
-let sendShouldFail = false;
-
-function resetKafkaMocks() {
-    producerConnectCalled = false;
-    sentMessages = [];
-    connectShouldFail = false;
-    sendShouldFail = false;
-
-    mockProducerInstance = {
-        connect: async () => {
-            producerConnectCalled = true;
-            if (connectShouldFail) throw new Error('Connection failed');
-        },
-        disconnect: async () => {},
-        send: async (payload) => {
-            if (sendShouldFail) {
-                const error = new Error('Send failed');
-                error.name = 'KafkaJSNumberOfRetriesExceeded';
-                throw error;
-            }
-            sentMessages.push(payload);
-        }
-    };
-}
-
-resetKafkaMocks();
-
-class MockKafka {
-    constructor(config) {}
-    producer() {
-        return mockProducerInstance;
-    }
-}
-
-const mockKafkajs = {
-    Kafka: MockKafka,
-    logLevel: { ERROR: 1 }
-};
-
-Module.prototype.require = function(id) {
-    if (id === 'kafkajs') return mockKafkajs;
-    return originalRequire.apply(this, arguments);
-};
-
-process.env.KAFKA_BROKERS = 'kafka:9092';
-
-delete require.cache[require.resolve('../src/kafka')];
-const kafka = require('../src/kafka');
-Module.prototype.require = originalRequire;
-
-testAsync('kafka.js - should execute all code paths', async () => {
-    resetKafkaMocks();
-
-    // Test successful publish with default key (payload.id)
-    await kafka.publishEvent('user.events', { type: 'USER_CREATED', id: 'user-123' });
-    await new Promise(resolve => setTimeout(resolve, 50));
-    assert(producerConnectCalled);
-    assert.strictEqual(sentMessages.length, 1);
-    assert.strictEqual(sentMessages[0].messages[0].key, 'user-123');
-
-    // Test publish with custom key
-    resetKafkaMocks();
-    await kafka.publishEvent('user.events', { type: 'TEST' }, { key: 'custom' });
-    await new Promise(resolve => setTimeout(resolve, 50));
-    assert.strictEqual(sentMessages[0].messages[0].key, 'custom');
-
-    // Test publish without id or key (null key)
-    resetKafkaMocks();
-    await kafka.publishEvent('events', { type: 'TEST' });
-    await new Promise(resolve => setTimeout(resolve, 50));
-    assert.strictEqual(sentMessages[0].messages[0].key, null);
-
-    // Test emittedAt is added
-    const messageValue = JSON.parse(sentMessages[0].messages[0].value);
-    assert(messageValue.emittedAt);
-    assert(!isNaN(new Date(messageValue.emittedAt).getTime()));
-
-    // Test send failure (fire and forget - should not throw)
-    resetKafkaMocks();
-    sendShouldFail = true;
-    const originalError = console.error;
-    let errorLogged = false;
-    console.error = (...args) => { if (args[0].includes('Failed to publish')) errorLogged = true; };
-    await kafka.publishEvent('test', { id: '1' });
-    await new Promise(resolve => setTimeout(resolve, 50));
-    console.error = originalError;
-    assert(errorLogged);
-});
-
-testAsync('kafka.js - should handle connection failure', async () => {
-    resetKafkaMocks();
-    connectShouldFail = true;
-
-    delete require.cache[require.resolve('../src/kafka')];
-    Module.prototype.require = function(id) {
-        if (id === 'kafkajs') return mockKafkajs;
-        return originalRequire.apply(this, arguments);
-    };
-
-    const kafkaFail = require('../src/kafka');
-    Module.prototype.require = originalRequire;
-
-    const originalError = console.error;
-    console.error = () => {};
-    await kafkaFail.publishEvent('test', { id: '1' });
-    await new Promise(resolve => setTimeout(resolve, 50));
-    console.error = originalError;
-
-    // Should disable kafka after failure
-    assert(true);
-});
-
-// INDEX.JS TESTS
-
-console.log('\n=== Testing index.js ===\n');
-
-const mockDb = {
-    query: async function() { return { rows: [] }; }
-};
-
-const mockKafkaForIndex = {
-    publishEvent: async function() {}
-};
-
-const mockHttp = {
-    createApp: function({ routes }) {
-        const mockApp = {
-            post: () => {},
-            put: () => {},
-            delete: () => {},
-            get: () => {}
+    await test('POST /auth/register-doctor - 409 when email exists', async () => {
+        mockDb.mockResults.SELECT = {
+            rows: [{ id: 'existing', email: 'smith@test.com' }]
         };
-        routes(mockApp);
-    }
-};
 
-Module.prototype.require = function(id) {
-    if (id === './db') return mockDb;
-    if (id === './kafka') return mockKafkaForIndex;
-    if (id === './http') return mockHttp;
-    return originalRequire.apply(this, arguments);
-};
+        const res = await makeRequest('POST', '/auth/register-doctor', {
+            user: { sub: 'admin-1', role: 'admin' },
+            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'pass123' }
+        });
 
-process.env.PORT = '3001';
+        assert.strictEqual(res.status, 409);
+    });
 
-delete require.cache[require.resolve('../src/index')];
-require('../src/index');
-Module.prototype.require = originalRequire;
+    await test('POST /auth/register-doctor - non-admin is forbidden', async () => {
+        const res = await makeRequest('POST', '/auth/register-doctor', {
+            user: { sub: 'doctor-1', role: 'doctor' },
+            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'pass123' }
+        });
 
-test('index.js - issueToken should create valid token', () => {
-    const { nanoid } = require('nanoid');
-    const user = { id: nanoid(), role: 'doctor', name: 'Dr. Smith', email: 'smith@test.com' };
-    const token = jwt.sign(
-        {sub: user.id, role: user.role, name: user.name, email: user.email},
-        JWT_SECRET,
-        {expiresIn: '2h'}
-    );
-    const decoded = jwt.verify(token, JWT_SECRET);
-    assert.strictEqual(decoded.sub, user.id);
-    assert.strictEqual(decoded.exp - decoded.iat, 7200); // 2 hours
-});
+        assert.strictEqual(res.status, 403);
+    });
 
-test('index.js - authGuard should handle all paths', () => {
-    const { nanoid } = require('nanoid');
+    // Update user
+    await test('PUT /auth/users/:id - admin updates user', async () => {
+        mockDb.mockResults.SELECT = {
+            rows: [{ id: 'user-1', role: 'doctor', name: 'Dr. Smith', email: 'smith@test.com' }]
+        };
+        mockDb.mockResults.UPDATE = {
+            rows: [{ id: 'user-1', role: 'doctor', name: 'Dr. John Smith', email: 'john.smith@test.com' }]
+        };
 
-    // Test 1: Role conversion - single role to array
-    const roleOrRoles1 = 'admin';
-    const roles1 = Array.isArray(roleOrRoles1) ? roleOrRoles1 : [roleOrRoles1];
-    assert(Array.isArray(roles1));
-    assert.strictEqual(roles1[0], 'admin');
+        const res = await makeRequest('PUT', '/auth/users/user-1', {
+            user: { sub: 'admin-1', role: 'admin' },
+            body: { name: 'Dr. John Smith', email: 'john.smith@test.com' }
+        });
 
-    // Test 2: Role conversion - array stays array
-    const roleOrRoles2 = ['doctor', 'admin'];
-    const roles2 = Array.isArray(roleOrRoles2) ? roleOrRoles2 : [roleOrRoles2];
-    assert.strictEqual(roles2.length, 2);
+        assert.strictEqual(res.status, 200);
+        assert.strictEqual(res.body.name, 'Dr. John Smith');
+    });
 
-    // Test 3: User already in req.user (from gateway)
-    const req1 = { user: { role: 'admin' } };
-    let next1Called = false;
-    if (req1.user && roles1.includes(req1.user.role)) {
-        next1Called = true;
-    }
-    assert(next1Called);
+    await test('PUT /auth/users/:id - updates with password', async () => {
+        mockDb.mockResults.SELECT = {
+            rows: [{ id: 'user-1', role: 'doctor', name: 'Dr. Smith', email: 'smith@test.com' }]
+        };
+        mockDb.mockResults.UPDATE = {
+            rows: [{ id: 'user-1', role: 'doctor', name: 'Dr. Smith', email: 'smith@test.com' }]
+        };
 
-    // Test 4: User from Bearer token
-    const user = { id: nanoid(), role: 'doctor' };
-    const token = jwt.sign({sub: user.id, role: user.role}, JWT_SECRET, {expiresIn: '2h'});
-    const req2 = { user: null, headers: { authorization: `Bearer ${token}` } };
-    let verifiedUser;
-    if (!req2.user) {
-        const auth = req2.headers.authorization || '';
-        if (auth.startsWith('Bearer ')) {
-            try {
-                verifiedUser = jwt.verify(auth.slice(7), JWT_SECRET);
-            } catch (err) {
-                // Handle invalid token
+        const res = await makeRequest('PUT', '/auth/users/user-1', {
+            user: { sub: 'admin-1', role: 'admin' },
+            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'newpass' }
+        });
+
+        assert.strictEqual(res.status, 200);
+    });
+
+    await test('PUT /auth/users/:id - fails without required fields', async () => {
+        const res = await makeRequest('PUT', '/auth/users/user-1', {
+            user: { sub: 'admin-1', role: 'admin' },
+            body: { name: 'Dr. Smith' }
+        });
+
+        assert.strictEqual(res.status, 400);
+    });
+
+    await test('PUT /auth/users/:id - 404 when user not found', async () => {
+        mockDb.mockResults.SELECT = { rows: [] };
+
+        const res = await makeRequest('PUT', '/auth/users/user-999', {
+            user: { sub: 'admin-1', role: 'admin' },
+            body: { name: 'Dr. Smith', email: 'smith@test.com' }
+        });
+
+        assert.strictEqual(res.status, 404);
+    });
+
+    await test('PUT /auth/users/:id - 409 when email exists', async () => {
+        let callCount = 0;
+        mockDb.query = async function(sql) {
+            callCount++;
+            if (callCount === 1) {
+                return { rows: [{ id: 'user-1', email: 'old@test.com' }] };
             }
-        }
-    }
-    assert(verifiedUser);
-    assert.strictEqual(verifiedUser.role, 'doctor');
+            return { rows: [{ id: '1' }] };
+        };
 
-    // Test 5: Invalid token (catch block)
-    const req3 = { user: null, headers: { authorization: 'Bearer invalid' } };
-    let tokenError = false;
-    if (!req3.user) {
-        const auth = req3.headers.authorization || '';
-        if (auth.startsWith('Bearer ')) {
-            try {
-                jwt.verify(auth.slice(7), JWT_SECRET);
-            } catch (err) {
-                tokenError = true;
-            }
-        }
-    }
-    assert(tokenError);
+        const res = await makeRequest('PUT', '/auth/users/user-1', {
+            user: { sub: 'admin-1', role: 'admin' },
+            body: { name: 'Dr. Smith', email: 'new@test.com' }
+        });
 
-    // Test 6: No token, no user - forbidden
-    const req4 = { user: null, headers: {} };
-    let forbidden = false;
-    if (!req4.user || !roles1.includes(req4.user?.role)) {
-        forbidden = true;
-    }
-    assert(forbidden);
+        assert.strictEqual(res.status, 409);
+    });
 
-    // Test 7: User with wrong role - forbidden
-    const req5 = { user: { role: 'patient' } };
-    let wrongRole = false;
-    if (!roles1.includes(req5.user.role)) {
-        wrongRole = true;
-    }
-    assert(wrongRole);
-});
+    await test('PUT /auth/users/:id - non-admin is forbidden', async () => {
+        const res = await makeRequest('PUT', '/auth/users/user-1', {
+            user: { sub: 'doctor-1', role: 'doctor' },
+            body: { name: 'Dr. Smith', email: 'smith@test.com' }
+        });
 
-test('index.js - route validation logic', () => {
-    // Test missing fields validation
-    const body1 = { name: 'Dr. Smith' };
-    const hasAllFields1 = !!(body1.name && body1.email && body1.password);
-    assert(!hasAllFields1);
+        assert.strictEqual(res.status, 403);
+    });
 
-    // Test all fields present
-    const body2 = { name: 'Dr. Smith', email: 'smith@test.com', password: 'pass' };
-    const hasAllFields2 = !!(body2.name && body2.email && body2.password);
-    assert(hasAllFields2);
+    // Delete user
+    await test('DELETE /auth/users/:id - admin deletes user', async () => {
+        mockDb.mockResults.UPDATE = {
+            rows: [{ id: 'user-1', role: 'doctor' }]
+        };
 
-    // Test empty body handling
-    const body3 = undefined;
-    const { name, email, password } = body3 || {};
-    assert(!name && !email && !password);
-});
+        const res = await makeRequest('DELETE', '/auth/users/user-1', {
+            user: { sub: 'admin-1', role: 'admin' }
+        });
 
-test('index.js - user object creation', () => {
-    const { nanoid } = require('nanoid');
+        assert.strictEqual(res.status, 204);
+    });
 
-    // Doctor user
-    const doctor = { id: nanoid(), role: 'doctor', name: 'Dr. Smith', email: 'smith@test.com', passwordHash: 'hash' };
-    assert.strictEqual(doctor.role, 'doctor');
-    assert(doctor.id);
+    await test('DELETE /auth/users/:id - 404 when not found', async () => {
+        mockDb.mockResults.UPDATE = { rows: [] };
 
-    // Patient user
-    const patient = { id: nanoid(), role: 'patient', name: 'John Doe', email: 'john@test.com', passwordHash: 'hash' };
-    assert.strictEqual(patient.role, 'patient');
-    assert(patient.id);
-});
+        const res = await makeRequest('DELETE', '/auth/users/user-999', {
+            user: { sub: 'admin-1', role: 'admin' }
+        });
 
-test('index.js - UPDATE query building', () => {
-    // With password
-    const updates1 = [];
-    const params1 = [];
-    updates1.push(`name = $${params1.length + 1}`);
-    params1.push('Name');
-    updates1.push(`email = $${params1.length + 1}`);
-    params1.push('email@test.com');
-    const password = 'newpass';
-    if (password) {
-        updates1.push(`passwordHash = $${params1.length + 1}`);
-        params1.push(password);
-    }
-    params1.push('user-id');
-    assert.strictEqual(params1.length, 4);
-    assert.strictEqual(updates1.length, 3);
+        assert.strictEqual(res.status, 404);
+    });
 
-    // Without password
-    const updates2 = [];
-    const params2 = [];
-    updates2.push(`name = $${params2.length + 1}`);
-    params2.push('Name');
-    updates2.push(`email = $${params2.length + 1}`);
-    params2.push('email@test.com');
-    const noPassword = undefined;
-    if (noPassword) {
-        updates2.push(`passwordHash = $${params2.length + 1}`);
-        params2.push(noPassword);
-    }
-    params2.push('user-id');
-    assert.strictEqual(params2.length, 3);
-    assert.strictEqual(updates2.length, 2);
-});
+    await test('DELETE /auth/users/:id - non-admin is forbidden', async () => {
+        const res = await makeRequest('DELETE', '/auth/users/user-1', {
+            user: { sub: 'doctor-1', role: 'doctor' }
+        });
 
-test('index.js - email change detection in UPDATE', () => {
-    // Email changed - should check for conflicts
-    const existing = { email: 'old@test.com' };
-    const newEmail = 'new@test.com';
-    const shouldCheck = newEmail !== existing.email;
-    assert(shouldCheck);
+        assert.strictEqual(res.status, 403);
+    });
 
-    // Email same - skip conflict check
-    const sameEmail = 'old@test.com';
-    const shouldNotCheck = sameEmail !== existing.email;
-    assert(!shouldNotCheck);
-});
+    // Register patient
+    await test('POST /auth/register-patient - doctor registers patient', async () => {
+        mockDb.mockResults.SELECT = { rows: [] };
 
-test('index.js - Kafka event structures', () => {
-    // USER_CREATED event
-    const created = {
-        type: 'USER_CREATED',
-        id: 'user-123',
-        role: 'doctor',
-        name: 'Dr. Smith',
-        email: 'smith@test.com'
-    };
-    assert.strictEqual(created.type, 'USER_CREATED');
-    assert(created.id && created.role && created.name && created.email);
+        const res = await makeRequest('POST', '/auth/register-patient', {
+            user: { sub: 'doctor-1', role: 'doctor' },
+            body: { name: 'John Doe', email: 'john@test.com', password: 'pass123' }
+        });
 
-    // USER_UPDATED event
-    const updated = {
-        type: 'USER_UPDATED',
-        id: 'user-123',
-        role: 'doctor',
-        name: 'Dr. John Smith',
-        email: 'john.smith@test.com'
-    };
-    assert.strictEqual(updated.type, 'USER_UPDATED');
+        assert.strictEqual(res.status, 201);
+        assert.strictEqual(res.body.id, 'test-user-123');
+    });
 
-    // USER_DELETED event with timestamp
-    const deleted = {
-        type: 'USER_DELETED',
-        id: 'user-123',
-        role: 'doctor',
-        deletedAt: new Date().toISOString()
-    };
-    assert.strictEqual(deleted.type, 'USER_DELETED');
-    assert(deleted.deletedAt.includes('T'));
-    assert(deleted.deletedAt.includes('Z'));
-});
+    await test('POST /auth/register-patient - admin registers patient', async () => {
+        mockDb.mockResults.SELECT = { rows: [] };
 
-test('index.js - GET /auth/me token extraction', () => {
-    // Valid Bearer token
-    const auth1 = 'Bearer abc123xyz';
-    const token1 = auth1.startsWith('Bearer ') ? auth1.slice(7) : null;
-    assert.strictEqual(token1, 'abc123xyz');
+        const res = await makeRequest('POST', '/auth/register-patient', {
+            user: { sub: 'admin-1', role: 'admin' },
+            body: { name: 'John Doe', email: 'john@test.com', password: 'pass123' }
+        });
 
-    // No Bearer prefix
-    const auth2 = 'Basic xyz';
-    const token2 = auth2.startsWith('Bearer ') ? auth2.slice(7) : null;
-    assert.strictEqual(token2, null);
+        assert.strictEqual(res.status, 201);
+    });
 
-    // Empty auth
-    const auth3 = '';
-    const token3 = auth3.startsWith('Bearer ') ? auth3.slice(7) : null;
-    assert.strictEqual(token3, null);
-});
+    await test('POST /auth/register-patient - fails without required fields', async () => {
+        const res = await makeRequest('POST', '/auth/register-patient', {
+            user: { sub: 'doctor-1', role: 'doctor' },
+            body: { name: 'John Doe' }
+        });
 
-test('index.js - GET /auth/me catch block', () => {
-    // Valid token should not throw
-    const validToken = jwt.sign({ sub: 'user-123' }, JWT_SECRET, { expiresIn: '2h' });
-    let validError = false;
-    try {
-        jwt.verify(validToken, JWT_SECRET);
-    } catch {
-        validError = true;
-    }
-    assert(!validError);
+        assert.strictEqual(res.status, 400);
+    });
 
-    // Invalid token should hit catch
-    let invalidError = false;
-    try {
-        jwt.verify('invalid', JWT_SECRET);
-    } catch {
-        invalidError = true;
-    }
-    assert(invalidError);
-});
+    await test('POST /auth/register-patient - 409 when email exists', async () => {
+        mockDb.mockResults.SELECT = {
+            rows: [{ id: 'existing', email: 'john@test.com' }]
+        };
 
-test('index.js - console.log in login route', () => {
-    const originalLog = console.log;
-    let logCalled = false;
-    let loggedBody;
+        const res = await makeRequest('POST', '/auth/register-patient', {
+            user: { sub: 'doctor-1', role: 'doctor' },
+            body: { name: 'John Doe', email: 'john@test.com', password: 'pass123' }
+        });
 
-    console.log = (msg, body) => {
-        if (msg === 'login') {
-            logCalled = true;
-            loggedBody = body;
-        }
-    };
+        assert.strictEqual(res.status, 409);
+    });
 
-    const body = { email: 'test@test.com', password: 'pass' };
-    console.log('login', body);
+    await test('POST /auth/register-patient - non-doctor/admin is forbidden', async () => {
+        const res = await makeRequest('POST', '/auth/register-patient', {
+            user: { sub: 'patient-1', role: 'patient' },
+            body: { name: 'John Doe', email: 'john@test.com', password: 'pass123' }
+        });
 
-    console.log = originalLog;
+        assert.strictEqual(res.status, 403);
+    });
 
-    assert(logCalled);
-    assert.deepStrictEqual(loggedBody, body);
-});
+    // Login
+    await test('POST /auth/login - successful login', async () => {
+        mockDb.mockResults.SELECT = {
+            rows: [{
+                id: 'user-1',
+                role: 'patient',
+                name: 'John Doe',
+                email: 'john@test.com',
+                passwordhash: 'pass123'
+            }]
+        };
 
-test('index.js - constants should be defined', () => {
-    const USER_EVENTS_TOPIC = 'user.events';
-    const PORT = process.env.PORT || 3001;
-    const JWT_SECRET = process.env.JWT_SECRET || 'devsecret';
+        const res = await makeRequest('POST', '/auth/login', {
+            body: { email: 'john@test.com', password: 'pass123' }
+        });
 
-    assert.strictEqual(USER_EVENTS_TOPIC, 'user.events');
-    assert(PORT);
-    assert(JWT_SECRET);
-});
+        assert.strictEqual(res.status, 200);
+        assert(res.body.token);
 
-// SUMMARY
+        const decoded = jwt.verify(res.body.token, JWT_SECRET);
+        assert.strictEqual(decoded.sub, 'user-1');
+        assert.strictEqual(decoded.role, 'patient');
+    });
 
-(async () => {
-    console.log('\n=== Test Summary ===\n');
+    await test('POST /auth/login - 401 for invalid credentials', async () => {
+        mockDb.mockResults.SELECT = { rows: [] };
+
+        const res = await makeRequest('POST', '/auth/login', {
+            body: { email: 'john@test.com', password: 'wrongpass' }
+        });
+
+        assert.strictEqual(res.status, 401);
+    });
+
+    // Get me
+    await test('GET /auth/me - returns user from valid token', async () => {
+        const token = jwt.sign({
+            sub: 'user-1',
+            role: 'patient',
+            name: 'John Doe',
+            email: 'john@test.com'
+        }, JWT_SECRET, { expiresIn: '2h' });
+
+        const res = await makeRequest('GET', '/auth/me', {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+
+        assert.strictEqual(res.status, 200);
+        assert.strictEqual(res.body.sub, 'user-1');
+        assert.strictEqual(res.body.role, 'patient');
+    });
+
+    await test('GET /auth/me - 401 without token', async () => {
+        const res = await makeRequest('GET', '/auth/me');
+        assert.strictEqual(res.status, 401);
+    });
+
+    await test('GET /auth/me - 401 with invalid token', async () => {
+        const res = await makeRequest('GET', '/auth/me', {
+            headers: { Authorization: 'Bearer invalidtoken' }
+        });
+
+        assert.strictEqual(res.status, 401);
+    });
+
+    await test('GET /auth/me - 401 with non-Bearer token', async () => {
+        const res = await makeRequest('GET', '/auth/me', {
+            headers: { Authorization: 'Basic sometoken' }
+        });
+
+        assert.strictEqual(res.status, 401);
+    });
+
+    // authGuard with Bearer token (not x-user)
+    await test('authGuard - validates Bearer token when no x-user', async () => {
+        const token = jwt.sign({ sub: 'admin-1', role: 'admin' }, JWT_SECRET, { expiresIn: '2h' });
+        mockDb.mockResults.SELECT = { rows: [] };
+
+        const res = await makeRequest('POST', '/auth/register-doctor', {
+            headers: { Authorization: `Bearer ${token}` },
+            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'pass123' }
+        });
+
+        assert.strictEqual(res.status, 201);
+    });
+
+    await test('authGuard - 401 with invalid Bearer token', async () => {
+        const res = await makeRequest('POST', '/auth/register-doctor', {
+            headers: { Authorization: 'Bearer invalidtoken' },
+            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'pass123' }
+        });
+
+        assert.strictEqual(res.status, 401);
+    });
+
+    // Summary
+    console.log(`\n=== Test Summary ===`);
     console.log(`Passed: ${passed}`);
     console.log(`Failed: ${failed}`);
     console.log(`Total: ${passed + failed}`);
-    console.log(`Success Rate: ${((passed / (passed + failed)) * 100).toFixed(2)}%`);
 
-    if (failed > 0) {
+    process.exit(failed > 0 ? 1 : 0);
+}
+
+setTimeout(() => {
+    runTests().catch(error => {
+        console.error('Fatal error:', error);
         process.exit(1);
-    }
-})();
+    });
+}, 300);

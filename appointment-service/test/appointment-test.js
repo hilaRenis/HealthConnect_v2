@@ -1,92 +1,68 @@
-//Triger test1
 const assert = require('assert');
+const http = require('http');
+
+let passed = 0;
+let failed = 0;
 
 // Mock database
 const mockDb = {
     queries: [],
     mockResults: {},
-    selectCallCount: 0,
-    query(sql, params) {
+    query: async function(sql, params) {
         this.queries.push({ sql, params });
-
-        // Smarter query matching
         const sqlLower = sql.toLowerCase();
 
-        // Check for schema query (check if time columns exist)
         if (sqlLower.includes('information_schema')) {
-            return Promise.resolve({ rows: [{ column_name: 'starttime' }, { column_name: 'endtime' }] });
+            return { rows: [{ column_name: 'starttime' }, { column_name: 'endtime' }] };
         }
 
-        // For INSERT operations
-        if (sqlLower.startsWith('insert')) {
-            return Promise.resolve(this.mockResults['INSERT'] || { rows: [] });
+        if (sqlLower.includes('insert')) {
+            return this.mockResults['INSERT'] || { rows: [], rowCount: 1 };
+        }
+        if (sqlLower.includes('update')) {
+            return this.mockResults['UPDATE'] || { rows: [], rowCount: 1 };
+        }
+        if (sqlLower.includes('select 1') || sqlLower.includes('overlaps')) {
+            return this.mockResults['CONFLICT'] || { rows: [] };
+        }
+        if (sqlLower.includes('select')) {
+            return this.mockResults['SELECT'] || { rows: [] };
         }
 
-        // For UPDATE operations (includes soft deletes and RETURNING clauses)
-        if (sqlLower.startsWith('update')) {
-            return Promise.resolve(this.mockResults['UPDATE'] || { rows: [] });
-        }
-
-        // For SELECT operations - need to distinguish between conflict checks and data fetches
-        if (sqlLower.startsWith('select')) {
-            // Conflict check queries - these look for SELECT 1 or use OVERLAPS
-            if (sqlLower.includes('select 1') || sqlLower.includes('overlaps')) {
-                return Promise.resolve(this.mockResults['CONFLICT'] || { rows: [] });
-            }
-
-            // Regular data SELECT queries - return the appointment data
-            // Don't filter - just return what's set in the mock
-            return Promise.resolve(this.mockResults['SELECT'] || { rows: [] });
-        }
-
-        // Fallback
-        const key = sql.split(' ')[0].toUpperCase();
-        return Promise.resolve(this.mockResults[key] || { rows: [] });
+        return { rows: [], rowCount: 0 };
     },
     reset() {
         this.queries = [];
         this.mockResults = {};
-        this.selectCallCount = 0;
-    },
+    }
 };
 
 // Mock Kafka
 const mockKafka = {
     publishedEvents: [],
-    consumerStarted: false,
-    publishEvent: function(topic, payload) {
-        mockKafka.publishedEvents.push({ topic, payload });
-        return Promise.resolve();
+    publishEvent: async function(topic, payload, options) {
+        this.publishedEvents.push({ topic, payload, options });
     },
-    startConsumer: function() {
-        mockKafka.consumerStarted = true;
-        return Promise.resolve(null);
+    startConsumer: async function() {
+        return {};
     },
     reset() {
         this.publishedEvents = [];
-        this.consumerStarted = false;
-    },
+    }
 };
 
-// Mock modules
-require.cache[require.resolve('../src/db')] = {
-    exports: mockDb,
-};
+// Setup mocks
+require.cache[require.resolve('../appointment-service/src/db')] = { exports: mockDb };
+require.cache[require.resolve('../appointment-service/src/kafka')] = { exports: mockKafka };
+require.cache[require.resolve('nanoid')] = { exports: { nanoid: () => 'test-appt-123' } };
 
-require.cache[require.resolve('../src/kafka')] = {
-    exports: mockKafka,
-};
+// Set environment
+process.env.PORT = '3004';
+process.env.KAFKA_BROKERS = 'none';
 
-// Mock nanoid
-require.cache[require.resolve('nanoid')] = {
-    exports: { nanoid: () => 'test-appointment-id-123' },
-};
-
-// Load the module after mocks are set
-const { createApp } = require('../src/http');
-
-let app;
-let server;
+// Load the service
+delete require.cache[require.resolve('../appointment-service/src/index')];
+require('../appointment-service/src/index');
 
 function makeRequest(method, path, options = {}) {
     return new Promise((resolve, reject) => {
@@ -96,29 +72,25 @@ function makeRequest(method, path, options = {}) {
             headers['x-user'] = JSON.stringify(user);
         }
 
-        const req = require('http').request(
-            {
-                hostname: 'localhost',
-                port: 3004,
-                path,
-                method,
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...headers,
-                },
-            },
-            (res) => {
-                let data = '';
-                res.on('data', (chunk) => (data += chunk));
-                res.on('end', () => {
-                    resolve({
-                        status: res.statusCode,
-                        body: data ? JSON.parse(data) : null,
-                        headers: res.headers,
-                    });
-                });
+        const req = http.request({
+            hostname: 'localhost',
+            port: 3004,
+            path,
+            method,
+            headers: {
+                'Content-Type': 'application/json',
+                ...headers
             }
-        );
+        }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                resolve({
+                    status: res.statusCode,
+                    body: data ? JSON.parse(data) : null
+                });
+            });
+        });
 
         req.on('error', reject);
         if (body) req.write(JSON.stringify(body));
@@ -126,119 +98,368 @@ function makeRequest(method, path, options = {}) {
     });
 }
 
-async function runTests() {
-    console.log('Starting appointment-service tests...\n');
-
-    let passed = 0;
-    let failed = 0;
-
-    async function test(name, fn) {
-        try {
-            mockDb.reset();
-            mockKafka.reset();
-            await fn();
-            console.log(`${name}`);
-            passed++;
-        } catch (error) {
-            console.error(`${name}`);
-            console.error(`   ${error.message}`);
-            if (error.stack) {
-                console.error(`   ${error.stack.split('\n')[1]}`);
-            }
-            failed++;
-        }
+async function test(name, fn) {
+    try {
+        mockDb.reset();
+        mockKafka.reset();
+        await fn();
+        console.log(`✓ ${name}`);
+        passed++;
+    } catch (error) {
+        console.error(`✗ ${name}`);
+        console.error(`  ${error.message}`);
+        failed++;
     }
+}
 
-    // Setup test server
-    await test('Server setup', async () => {
-        const routes = require('../src/index');
-        // Server already started in index.js, we'll use that
-        await new Promise((resolve) => setTimeout(resolve, 100));
-    });
+async function runTests() {
+    console.log('\n=== Appointment Service Tests ===\n');
+
+    await new Promise(resolve => setTimeout(resolve, 200));
 
     // Health check
-    await test('GET /health - should return service status', async () => {
+    await test('GET /health', async () => {
         const res = await makeRequest('GET', '/health');
         assert.strictEqual(res.status, 200);
         assert.strictEqual(res.body.service, 'appointment-service');
-        assert.strictEqual(res.body.ok, true);
     });
 
-    await test('POST / - fails without doctorUserId for patient', async () => {
+    // Create appointment - patient
+    await test('POST / - patient creates appointment', async () => {
+        let callCount = 0;
+        mockDb.query = async function(sql) {
+            callCount++;
+            if (callCount === 1) return { rows: [{ column_name: 'starttime' }] };
+            if (callCount === 2) return { rows: [] };
+            if (callCount === 3) return { rows: [], rowCount: 1 };
+            return {
+                rows: [{
+                    id: 'test-appt-123',
+                    patientuserid: 'patient-1',
+                    doctoruserid: 'doctor-1',
+                    date: '2025-12-01',
+                    slot: '10:00',
+                    status: 'pending',
+                    starttime: '2025-12-01T10:00:00Z',
+                    endtime: '2025-12-01T10:30:00Z'
+                }]
+            };
+        };
+
         const res = await makeRequest('POST', '/', {
-            user: { sub: 'patient-123', role: 'patient' },
+            user: { sub: 'patient-1', role: 'patient' },
             body: {
+                doctorUserId: 'doctor-1',
                 date: '2025-12-01',
                 slot: '10:00',
-            },
+                startTime: '2025-12-01T10:00:00Z',
+                endTime: '2025-12-01T10:30:00Z'
+            }
+        });
+
+        assert.strictEqual(res.status, 201);
+        assert.strictEqual(res.body.id, 'test-appt-123');
+    });
+
+    await test('POST / - admin creates appointment', async () => {
+        let callCount = 0;
+        mockDb.query = async function(sql) {
+            callCount++;
+            if (callCount === 1) return { rows: [{ column_name: 'starttime' }] };
+            if (callCount === 2) return { rows: [] };
+            if (callCount === 3) return { rows: [], rowCount: 1 };
+            return { rows: [{ id: 'test-appt-123', patientuserid: 'patient-1', doctoruserid: 'doctor-1', status: 'pending' }] };
+        };
+
+        const res = await makeRequest('POST', '/', {
+            user: { sub: 'admin-1', role: 'admin' },
+            body: {
+                patientUserId: 'patient-1',
+                doctorUserId: 'doctor-1',
+                date: '2025-12-01',
+                slot: '10:00'
+            }
+        });
+
+        assert.strictEqual(res.status, 201);
+    });
+
+    await test('POST / - doctor creates appointment', async () => {
+        let callCount = 0;
+        mockDb.query = async function(sql) {
+            callCount++;
+            if (callCount === 1) return { rows: [{ column_name: 'starttime' }] };
+            if (callCount === 2) return { rows: [] };
+            if (callCount === 3) return { rows: [], rowCount: 1 };
+            return { rows: [{ id: 'test-appt-123', patientuserid: 'patient-1', doctoruserid: 'doctor-1', status: 'pending' }] };
+        };
+
+        const res = await makeRequest('POST', '/', {
+            user: { sub: 'doctor-1', role: 'doctor' },
+            body: {
+                patientUserId: 'patient-1',
+                date: '2025-12-01',
+                slot: '10:00'
+            }
+        });
+
+        assert.strictEqual(res.status, 201);
+    });
+
+    await test('POST / - fails without patientUserId for admin', async () => {
+        const res = await makeRequest('POST', '/', {
+            user: { sub: 'admin-1', role: 'admin' },
+            body: { doctorUserId: 'doctor-1', date: '2025-12-01', slot: '10:00' }
         });
 
         assert.strictEqual(res.status, 400);
-        assert(res.body.error.includes('doctorUserId'));
+    });
+
+    await test('POST / - fails without doctorUserId', async () => {
+        const res = await makeRequest('POST', '/', {
+            user: { sub: 'patient-1', role: 'patient' },
+            body: { date: '2025-12-01', slot: '10:00' }
+        });
+
+        assert.strictEqual(res.status, 400);
     });
 
     await test('POST / - fails without date/slot', async () => {
         const res = await makeRequest('POST', '/', {
-            user: { sub: 'patient-123', role: 'patient' },
-            body: {
-                doctorUserId: 'doctor-456',
-            },
+            user: { sub: 'patient-1', role: 'patient' },
+            body: { doctorUserId: 'doctor-1' }
         });
 
         assert.strictEqual(res.status, 400);
-        assert(res.body.error.includes('date/slot'));
     });
 
-    await test('POST / - admin fails without patientUserId', async () => {
+    await test('POST / - 409 on conflict (time columns)', async () => {
+        let callCount = 0;
+        mockDb.query = async function(sql) {
+            callCount++;
+            if (callCount === 1) return { rows: [{ column_name: 'starttime' }] };
+            return { rows: [{ id: 'existing' }] };
+        };
+
         const res = await makeRequest('POST', '/', {
-            user: { sub: 'admin-123', role: 'admin' },
+            user: { sub: 'patient-1', role: 'patient' },
             body: {
-                doctorUserId: 'doctor-456',
+                doctorUserId: 'doctor-1',
                 date: '2025-12-01',
                 slot: '10:00',
-            },
+                startTime: '2025-12-01T10:00:00Z',
+                endTime: '2025-12-01T10:30:00Z'
+            }
         });
 
-        assert.strictEqual(res.status, 400);
-        assert(res.body.error.includes('patientUserId'));
+        assert.strictEqual(res.status, 409);
     });
 
-    await test('GET / - non-admin is forbidden', async () => {
+    await test('POST / - 409 on conflict (no time columns)', async () => {
+        let callCount = 0;
+        mockDb.query = async function(sql) {
+            callCount++;
+            if (callCount === 1) return { rows: [] };
+            return { rows: [{ id: 'existing' }] };
+        };
+
+        const res = await makeRequest('POST', '/', {
+            user: { sub: 'patient-1', role: 'patient' },
+            body: {
+                doctorUserId: 'doctor-1',
+                date: '2025-12-01',
+                slot: '10:00'
+            }
+        });
+
+        assert.strictEqual(res.status, 409);
+    });
+
+    // List all appointments (admin)
+    await test('GET / - admin lists appointments', async () => {
+        let callCount = 0;
+        mockDb.query = async function(sql) {
+            callCount++;
+            if (callCount === 1) return { rows: [] };
+            return {
+                rows: [{
+                    id: 'appt-1',
+                    patientuserid: 'patient-1',
+                    doctoruserid: 'doctor-1',
+                    status: 'pending',
+                    date: '2025-12-01',
+                    slot: '10:00'
+                }]
+            };
+        };
+
         const res = await makeRequest('GET', '/', {
-            user: { sub: 'patient-123', role: 'patient' },
+            user: { sub: 'admin-1', role: 'admin' }
+        });
+
+        assert.strictEqual(res.status, 200);
+        assert(Array.isArray(res.body));
+    });
+
+    await test('GET / - forbidden for non-admin', async () => {
+        const res = await makeRequest('GET', '/', {
+            user: { sub: 'patient-1', role: 'patient' }
         });
 
         assert.strictEqual(res.status, 403);
     });
 
-    // GET /mine removed - SELECT mocking issues
-    // GET /:id tests removed - SELECT mocking issues
+    // List my appointments
+    await test('GET /mine - user lists own appointments', async () => {
+        let callCount = 0;
+        mockDb.query = async function(sql) {
+            callCount++;
+            if (callCount === 1) return { rows: [] };
+            return { rows: [{ id: 'appt-1', patientuserid: 'patient-1' }] };
+        };
 
-    await test('GET /:id - 404 for non-existent appointment', async () => {
+        const res = await makeRequest('GET', '/mine', {
+            user: { sub: 'patient-1', role: 'patient' }
+        });
+
+        assert.strictEqual(res.status, 200);
+        assert(Array.isArray(res.body));
+    });
+
+    // Get appointment by ID
+    await test('GET /:id - patient gets own appointment', async () => {
+        mockDb.mockResults.SELECT = {
+            rows: [{
+                id: 'appt-1',
+                patientuserid: 'patient-1',
+                doctoruserid: 'doctor-1',
+                status: 'pending'
+            }]
+        };
+
+        const res = await makeRequest('GET', '/appt-1', {
+            user: { sub: 'patient-1', role: 'patient' }
+        });
+
+        assert.strictEqual(res.status, 200);
+    });
+
+    await test('GET /:id - doctor gets appointment', async () => {
+        mockDb.mockResults.SELECT = {
+            rows: [{
+                id: 'appt-1',
+                patientuserid: 'patient-1',
+                doctoruserid: 'doctor-1',
+                status: 'pending'
+            }]
+        };
+
+        const res = await makeRequest('GET', '/appt-1', {
+            user: { sub: 'doctor-1', role: 'doctor' }
+        });
+
+        assert.strictEqual(res.status, 200);
+    });
+
+    await test('GET /:id - admin gets any appointment', async () => {
+        mockDb.mockResults.SELECT = {
+            rows: [{ id: 'appt-1', patientuserid: 'patient-1', doctoruserid: 'doctor-1' }]
+        };
+
+        const res = await makeRequest('GET', '/appt-1', {
+            user: { sub: 'admin-1', role: 'admin' }
+        });
+
+        assert.strictEqual(res.status, 200);
+    });
+
+    await test('GET /:id - 404 when not found', async () => {
         mockDb.mockResults.SELECT = { rows: [] };
 
         const res = await makeRequest('GET', '/appt-999', {
-            user: { sub: 'patient-123', role: 'patient' },
+            user: { sub: 'admin-1', role: 'admin' }
         });
 
         assert.strictEqual(res.status, 404);
     });
 
-    await test('PUT /:id - 404 for non-existent appointment', async () => {
+    await test('GET /:id - 403 for unauthorized user', async () => {
+        mockDb.mockResults.SELECT = {
+            rows: [{ id: 'appt-1', patientuserid: 'patient-1', doctoruserid: 'doctor-1' }]
+        };
+
+        const res = await makeRequest('GET', '/appt-1', {
+            user: { sub: 'other-user', role: 'patient' }
+        });
+
+        assert.strictEqual(res.status, 403);
+    });
+
+    // Update appointment
+    await test('PUT /:id - admin updates appointment', async () => {
+        let callCount = 0;
+        mockDb.query = async function(sql) {
+            callCount++;
+            if (callCount === 1) {
+                return {
+                    rows: [{
+                        id: 'appt-1',
+                        patientuserid: 'patient-1',
+                        doctoruserid: 'doctor-1',
+                        date: '2025-12-01',
+                        slot: '10:00',
+                        status: 'pending'
+                    }]
+                };
+            }
+            if (callCount === 2) return { rows: [] };
+            if (callCount === 3) return { rows: [] };
+            if (callCount === 4) return { rows: [], rowCount: 1 };
+            return { rows: [{ id: 'appt-1', status: 'confirmed' }] };
+        };
+
+        const res = await makeRequest('PUT', '/appt-1', {
+            user: { sub: 'admin-1', role: 'admin' },
+            body: {
+                patientUserId: 'patient-1',
+                doctorUserId: 'doctor-1',
+                startTime: '2025-12-01T10:00:00Z',
+                endTime: '2025-12-01T11:00:00Z',
+                status: 'confirmed'
+            }
+        });
+
+        assert.strictEqual(res.status, 200);
+    });
+
+    await test('PUT /:id - 404 when not found', async () => {
         mockDb.mockResults.SELECT = { rows: [] };
 
         const res = await makeRequest('PUT', '/appt-999', {
-            user: { sub: 'admin-123', role: 'admin' },
-            body: { status: 'approved' },
+            user: { sub: 'admin-1', role: 'admin' },
+            body: { status: 'confirmed' }
         });
 
         assert.strictEqual(res.status, 404);
     });
 
+    await test('PUT /:id - fails without required fields', async () => {
+        mockDb.mockResults.SELECT = {
+            rows: [{ id: 'appt-1', patientuserid: 'patient-1', doctoruserid: 'doctor-1' }]
+        };
+
+        const res = await makeRequest('PUT', '/appt-1', {
+            user: { sub: 'admin-1', role: 'admin' },
+            body: {}
+        });
+
+        assert.strictEqual(res.status, 400);
+    });
+
     await test('PUT /:id - non-admin is forbidden', async () => {
-        const res = await makeRequest('PUT', '/appt-123', {
-            user: { sub: 'patient-123', role: 'patient' },
-            body: { status: 'approved' },
+        const res = await makeRequest('PUT', '/appt-1', {
+            user: { sub: 'patient-1', role: 'patient' },
+            body: { status: 'confirmed' }
         });
 
         assert.strictEqual(res.status, 403);
@@ -247,154 +468,140 @@ async function runTests() {
     // Delete appointment
     await test('DELETE /:id - admin deletes appointment', async () => {
         mockDb.mockResults.UPDATE = {
-            rows: [
-                {
-                    id: 'appt-123',
-                    patientuserid: 'patient-123',
-                    doctoruserid: 'doctor-456',
-                },
-            ],
+            rows: [{ id: 'appt-1', patientuserid: 'patient-1', doctoruserid: 'doctor-1' }],
+            rowCount: 1
         };
 
-        const res = await makeRequest('DELETE', '/appt-123', {
-            user: { sub: 'admin-123', role: 'admin' },
+        const res = await makeRequest('DELETE', '/appt-1', {
+            user: { sub: 'admin-1', role: 'admin' }
         });
 
         assert.strictEqual(res.status, 204);
     });
 
-    await test('DELETE /:id - 404 for non-existent appointment', async () => {
-        mockDb.mockResults.UPDATE = { rows: [] };
+    await test('DELETE /:id - 404 when not found', async () => {
+        mockDb.mockResults.UPDATE = { rows: [], rowCount: 0 };
 
         const res = await makeRequest('DELETE', '/appt-999', {
-            user: { sub: 'admin-123', role: 'admin' },
+            user: { sub: 'admin-1', role: 'admin' }
         });
 
         assert.strictEqual(res.status, 404);
     });
 
     await test('DELETE /:id - non-admin is forbidden', async () => {
-        const res = await makeRequest('DELETE', '/appt-123', {
-            user: { sub: 'patient-123', role: 'patient' },
+        const res = await makeRequest('DELETE', '/appt-1', {
+            user: { sub: 'patient-1', role: 'patient' }
         });
 
         assert.strictEqual(res.status, 403);
     });
 
     // Doctor actions
-    await test('POST /:id/approve - doctor approves appointment', async () => {
+    await test('POST /:id/approve - doctor approves', async () => {
         mockDb.mockResults.UPDATE = {
-            rows: [
-                {
-                    id: 'appt-123',
-                    patientuserid: 'patient-123',
-                    doctoruserid: 'doctor-456',
-                    status: 'approved',
-                },
-            ],
+            rows: [{ id: 'appt-1', status: 'approved' }],
+            rowCount: 1
         };
 
-        const res = await makeRequest('POST', '/appt-123/approve', {
-            user: { sub: 'doctor-456', role: 'doctor' },
+        const res = await makeRequest('POST', '/appt-1/approve', {
+            user: { sub: 'doctor-1', role: 'doctor' }
         });
 
         assert.strictEqual(res.status, 200);
         assert.strictEqual(res.body.status, 'approved');
     });
 
-    await test('POST /:id/approve - 404 for non-existent or unauthorized', async () => {
-        mockDb.mockResults.UPDATE = { rows: [] };
+    await test('POST /:id/approve - 404 when not found', async () => {
+        mockDb.mockResults.UPDATE = { rows: [], rowCount: 0 };
 
-        const res = await makeRequest('POST', '/appt-123/approve', {
-            user: { sub: 'doctor-456', role: 'doctor' },
+        const res = await makeRequest('POST', '/appt-999/approve', {
+            user: { sub: 'doctor-1', role: 'doctor' }
         });
 
         assert.strictEqual(res.status, 404);
     });
 
-    await test('POST /:id/deny - doctor denies appointment', async () => {
+    await test('POST /:id/approve - non-doctor is forbidden', async () => {
+        const res = await makeRequest('POST', '/appt-1/approve', {
+            user: { sub: 'patient-1', role: 'patient' }
+        });
+
+        assert.strictEqual(res.status, 403);
+    });
+
+    await test('POST /:id/deny - doctor denies', async () => {
         mockDb.mockResults.UPDATE = {
-            rows: [
-                {
-                    id: 'appt-123',
-                    patientuserid: 'patient-123',
-                    doctoruserid: 'doctor-456',
-                    status: 'denied',
-                },
-            ],
+            rows: [{ id: 'appt-1', status: 'denied' }],
+            rowCount: 1
         };
 
-        const res = await makeRequest('POST', '/appt-123/deny', {
-            user: { sub: 'doctor-456', role: 'doctor' },
+        const res = await makeRequest('POST', '/appt-1/deny', {
+            user: { sub: 'doctor-1', role: 'doctor' }
         });
 
         assert.strictEqual(res.status, 200);
         assert.strictEqual(res.body.status, 'denied');
     });
 
-    await test('POST /:id/cancel - patient cancels appointment', async () => {
+    await test('POST /:id/deny - non-doctor is forbidden', async () => {
+        const res = await makeRequest('POST', '/appt-1/deny', {
+            user: { sub: 'patient-1', role: 'patient' }
+        });
+
+        assert.strictEqual(res.status, 403);
+    });
+
+    // Cancel appointment
+    await test('POST /:id/cancel - patient cancels', async () => {
         mockDb.mockResults.UPDATE = {
-            rows: [
-                {
-                    id: 'appt-123',
-                    patientuserid: 'patient-123',
-                    doctoruserid: 'doctor-456',
-                    status: 'cancelled',
-                },
-            ],
+            rows: [{ id: 'appt-1', status: 'cancelled' }],
+            rowCount: 1
         };
 
-        const res = await makeRequest('POST', '/appt-123/cancel', {
-            user: { sub: 'patient-123', role: 'patient' },
+        const res = await makeRequest('POST', '/appt-1/cancel', {
+            user: { sub: 'patient-1', role: 'patient' }
         });
 
         assert.strictEqual(res.status, 200);
         assert.strictEqual(res.body.status, 'cancelled');
     });
 
-    await test('POST /:id/cancel - doctor cancels appointment', async () => {
+    await test('POST /:id/cancel - doctor cancels', async () => {
         mockDb.mockResults.UPDATE = {
-            rows: [
-                {
-                    id: 'appt-123',
-                    patientuserid: 'patient-123',
-                    doctoruserid: 'doctor-456',
-                    status: 'cancelled',
-                },
-            ],
+            rows: [{ id: 'appt-1', status: 'cancelled' }],
+            rowCount: 1
         };
 
-        const res = await makeRequest('POST', '/appt-123/cancel', {
-            user: { sub: 'doctor-456', role: 'doctor' },
+        const res = await makeRequest('POST', '/appt-1/cancel', {
+            user: { sub: 'doctor-1', role: 'doctor' }
         });
 
         assert.strictEqual(res.status, 200);
-        assert.strictEqual(res.body.status, 'cancelled');
     });
 
-    await test('POST /:id/cancel - 404 for unauthorized user', async () => {
-        mockDb.mockResults.UPDATE = { rows: [] };
+    await test('POST /:id/cancel - 404 for unauthorized', async () => {
+        mockDb.mockResults.UPDATE = { rows: [], rowCount: 0 };
 
-        const res = await makeRequest('POST', '/appt-123/cancel', {
-            user: { sub: 'other-user', role: 'patient' },
+        const res = await makeRequest('POST', '/appt-1/cancel', {
+            user: { sub: 'other-user', role: 'patient' }
         });
 
         assert.strictEqual(res.status, 404);
     });
 
     // Summary
-    console.log(`\nTest Results:`);
-    console.log(`   Passed: ${passed}`);
-    console.log(`   Failed: ${failed}`);
-    console.log(`   Total: ${passed + failed}`);
+    console.log(`\n=== Test Summary ===`);
+    console.log(`Passed: ${passed}`);
+    console.log(`Failed: ${failed}`);
+    console.log(`Total: ${passed + failed}`);
 
     process.exit(failed > 0 ? 1 : 0);
 }
 
-// Start server and run tests
 setTimeout(() => {
-    runTests().catch((error) => {
+    runTests().catch(error => {
         console.error('Fatal error:', error);
         process.exit(1);
     });
-}, 200);
+}, 300);

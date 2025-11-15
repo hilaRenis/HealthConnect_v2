@@ -1,10 +1,11 @@
-//Trigger test
+//Triger test
 const assert = require('assert');
 
 // Mock database
 const mockDb = {
     queries: [],
     mockResults: {},
+    selectCallCount: 0,
     query(sql, params) {
         this.queries.push({ sql, params });
 
@@ -31,9 +32,12 @@ const mockDb = {
             return Promise.resolve(this.mockResults['UPDATE'] || { rows: [] });
         }
 
-        // For SELECT operations - use SELECT result
+        // For SELECT operations
         if (sqlLower.startsWith('select')) {
-            return Promise.resolve(this.mockResults['SELECT'] || { rows: [] });
+            // After INSERT, there's a SELECT to fetch the created appointment
+            // Return the data from SELECT mock
+            const result = this.mockResults['SELECT'] || { rows: [] };
+            return Promise.resolve(result);
         }
 
         // Fallback
@@ -43,6 +47,7 @@ const mockDb = {
     reset() {
         this.queries = [];
         this.mockResults = {};
+        this.selectCallCount = 0;
     },
 };
 
@@ -172,6 +177,8 @@ async function runTests() {
                     date: '2025-12-01',
                     slot: '10:00',
                     status: 'pending',
+                    starttime: null,
+                    endtime: null,
                     patient_name: 'John Doe',
                     patient_email: 'john@example.com',
                     doctor_name: 'Dr. Smith',
@@ -207,6 +214,8 @@ async function runTests() {
                     date: '2025-12-02',
                     slot: '14:00',
                     status: 'pending',
+                    starttime: null,
+                    endtime: null,
                 },
             ],
         };
@@ -237,6 +246,8 @@ async function runTests() {
                     date: '2025-12-03',
                     slot: '09:00',
                     status: 'pending',
+                    starttime: null,
+                    endtime: null,
                 },
             ],
         };
@@ -322,6 +333,8 @@ async function runTests() {
                     date: '2025-12-01',
                     slot: '10:00',
                     status: 'pending',
+                    starttime: null,
+                    endtime: null,
                 },
                 {
                     id: 'appt-2',
@@ -330,6 +343,8 @@ async function runTests() {
                     date: '2025-12-02',
                     slot: '14:00',
                     status: 'approved',
+                    starttime: null,
+                    endtime: null,
                 },
             ],
         };
@@ -362,6 +377,8 @@ async function runTests() {
                     date: '2025-12-01',
                     slot: '10:00',
                     status: 'pending',
+                    starttime: null,
+                    endtime: null,
                 },
             ],
         };
@@ -386,6 +403,8 @@ async function runTests() {
                     date: '2025-12-01',
                     slot: '10:00',
                     status: 'pending',
+                    starttime: null,
+                    endtime: null,
                 },
             ],
         };
@@ -415,6 +434,8 @@ async function runTests() {
                     id: 'appt-123',
                     patientuserid: 'patient-123',
                     doctoruserid: 'doctor-456',
+                    starttime: null,
+                    endtime: null,
                 },
             ],
         };
@@ -438,6 +459,8 @@ async function runTests() {
                     date: '2025-12-01',
                     slot: '10:00',
                     status: 'pending',
+                    starttime: null,
+                    endtime: null,
                 },
             ],
         };

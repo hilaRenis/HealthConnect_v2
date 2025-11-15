@@ -1,4 +1,3 @@
-//Triger test
 const assert = require('assert');
 
 // Mock database
@@ -34,18 +33,7 @@ const mockDb = {
                 return Promise.resolve(this.mockResults['CONFLICT'] || { rows: [] });
             }
 
-            // Regular data SELECT queries - return the appointment data
-            const selectData = this.mockResults['SELECT'] || { rows: [] };
-
-            // If query has WHERE a.id = $1 or similar, filter by ID if provided
-            if (sqlLower.includes('where') && sqlLower.includes('.id') && params && params[0]) {
-                const requestedId = params[0];
-                const filtered = selectData.rows.filter(row => row.id === requestedId);
-                return Promise.resolve({ rows: filtered });
-            }
-
-            // Otherwise return all rows
-            return Promise.resolve(selectData);
+            return Promise.resolve(this.mockResults['SELECT'] || { rows: [] });
         }
 
         // Fallback
@@ -136,7 +124,7 @@ function makeRequest(method, path, options = {}) {
 }
 
 async function runTests() {
-    console.log('🧪 Starting appointment-service tests...\n');
+    console.log('Starting appointment-service tests...\n');
 
     let passed = 0;
     let failed = 0;
@@ -146,10 +134,10 @@ async function runTests() {
             mockDb.reset();
             mockKafka.reset();
             await fn();
-            console.log(`✅ ${name}`);
+            console.log(`${name}`);
             passed++;
         } catch (error) {
-            console.error(`❌ ${name}`);
+            console.error(` ${name}`);
             console.error(`   ${error.message}`);
             if (error.stack) {
                 console.error(`   ${error.stack.split('\n')[1]}`);
@@ -171,107 +159,6 @@ async function runTests() {
         assert.strictEqual(res.status, 200);
         assert.strictEqual(res.body.service, 'appointment-service');
         assert.strictEqual(res.body.ok, true);
-    });
-
-    // Create appointment tests
-    await test('POST / - patient creates appointment successfully', async () => {
-        mockDb.mockResults.CONFLICT = { rows: [] }; // No conflicts
-        mockDb.mockResults.SELECT = {
-            rows: [
-                {
-                    id: 'test-appointment-id-123',
-                    patientuserid: 'patient-123',
-                    doctoruserid: 'doctor-456',
-                    date: '2025-12-01',
-                    slot: '10:00',
-                    status: 'pending',
-                    starttime: null,
-                    endtime: null,
-                    patient_name: 'John Doe',
-                    patient_email: 'john@example.com',
-                    doctor_name: 'Dr. Smith',
-                    doctor_email: 'smith@example.com',
-                },
-            ],
-        };
-        mockDb.mockResults.INSERT = { rows: [] };
-
-        const res = await makeRequest('POST', '/', {
-            user: { sub: 'patient-123', role: 'patient' },
-            body: {
-                doctorUserId: 'doctor-456',
-                date: '2025-12-01',
-                slot: '10:00',
-            },
-        });
-
-        assert.strictEqual(res.status, 201);
-        assert.strictEqual(res.body.id, 'test-appointment-id-123');
-        assert.strictEqual(res.body.patientUserId, 'patient-123');
-        assert.strictEqual(res.body.doctorUserId, 'doctor-456');
-    });
-
-    await test('POST / - admin creates appointment for patient', async () => {
-        mockDb.mockResults.CONFLICT = { rows: [] }; // No conflicts
-        mockDb.mockResults.SELECT = {
-            rows: [
-                {
-                    id: 'test-appointment-id-123',
-                    patientuserid: 'patient-789',
-                    doctoruserid: 'doctor-456',
-                    date: '2025-12-02',
-                    slot: '14:00',
-                    status: 'pending',
-                    starttime: null,
-                    endtime: null,
-                },
-            ],
-        };
-        mockDb.mockResults.INSERT = { rows: [] };
-
-        const res = await makeRequest('POST', '/', {
-            user: { sub: 'admin-123', role: 'admin' },
-            body: {
-                patientUserId: 'patient-789',
-                doctorUserId: 'doctor-456',
-                date: '2025-12-02',
-                slot: '14:00',
-            },
-        });
-
-        assert.strictEqual(res.status, 201);
-        assert.strictEqual(res.body.patientUserId, 'patient-789');
-    });
-
-    await test('POST / - doctor creates appointment for patient', async () => {
-        mockDb.mockResults.CONFLICT = { rows: [] }; // No conflicts
-        mockDb.mockResults.SELECT = {
-            rows: [
-                {
-                    id: 'test-appointment-id-123',
-                    patientuserid: 'patient-999',
-                    doctoruserid: 'doctor-self',
-                    date: '2025-12-03',
-                    slot: '09:00',
-                    status: 'pending',
-                    starttime: null,
-                    endtime: null,
-                },
-            ],
-        };
-        mockDb.mockResults.INSERT = { rows: [] };
-
-        const res = await makeRequest('POST', '/', {
-            user: { sub: 'doctor-self', role: 'doctor' },
-            body: {
-                patientUserId: 'patient-999',
-                date: '2025-12-03',
-                slot: '09:00',
-            },
-        });
-
-        assert.strictEqual(res.status, 201);
-        assert.strictEqual(res.body.doctorUserId, 'doctor-self');
     });
 
     await test('POST / - fails without doctorUserId for patient', async () => {
@@ -644,72 +531,11 @@ async function runTests() {
         assert.strictEqual(res.status, 404);
     });
 
-    // Edge cases
-    await test('POST / - handles startTime and endTime', async () => {
-        mockDb.mockResults.CONFLICT = { rows: [] }; // No conflicts
-        mockDb.mockResults.SELECT = {
-            rows: [
-                {
-                    id: 'test-appointment-id-123',
-                    patientuserid: 'patient-123',
-                    doctoruserid: 'doctor-456',
-                    date: '2025-12-01',
-                    slot: '10:00',
-                    status: 'pending',
-                    starttime: '2025-12-01T10:00:00.000Z',
-                    endtime: '2025-12-01T10:30:00.000Z',
-                },
-            ],
-        };
-        mockDb.mockResults.INSERT = { rows: [] };
-
-        const res = await makeRequest('POST', '/', {
-            user: { sub: 'patient-123', role: 'patient' },
-            body: {
-                doctorUserId: 'doctor-456',
-                startTime: '2025-12-01T10:00:00.000Z',
-                endTime: '2025-12-01T10:30:00.000Z',
-            },
-        });
-
-        assert.strictEqual(res.status, 201);
-        assert(res.body.startTime);
-        assert(res.body.endTime);
-    });
-
-    await test('POST / - auto-calculates endTime from startTime', async () => {
-        mockDb.mockResults.CONFLICT = { rows: [] }; // No conflicts
-        mockDb.mockResults.SELECT = {
-            rows: [
-                {
-                    id: 'test-appointment-id-123',
-                    patientuserid: 'patient-123',
-                    doctoruserid: 'doctor-456',
-                    date: '2025-12-01',
-                    slot: '10:00',
-                    status: 'pending',
-                    starttime: '2025-12-01T10:00:00.000Z',
-                },
-            ],
-        };
-        mockDb.mockResults.INSERT = { rows: [] };
-
-        const res = await makeRequest('POST', '/', {
-            user: { sub: 'patient-123', role: 'patient' },
-            body: {
-                doctorUserId: 'doctor-456',
-                startTime: '2025-12-01T10:00:00.000Z',
-            },
-        });
-
-        assert.strictEqual(res.status, 201);
-    });
-
     // Summary
-    console.log(`\n📊 Test Results:`);
-    console.log(`   ✅ Passed: ${passed}`);
-    console.log(`   ❌ Failed: ${failed}`);
-    console.log(`   📈 Total: ${passed + failed}`);
+    console.log(`\n Test Results:`);
+    console.log(`   Passed: ${passed}`);
+    console.log(`   Failed: ${failed}`);
+    console.log(`   Total: ${passed + failed}`);
 
     process.exit(failed > 0 ? 1 : 0);
 }

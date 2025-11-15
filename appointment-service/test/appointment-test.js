@@ -12,14 +12,9 @@ const mockDb = {
         // Smarter query matching
         const sqlLower = sql.toLowerCase();
 
-        // Check for schema query
+        // Check for schema query (check if time columns exist)
         if (sqlLower.includes('information_schema')) {
             return Promise.resolve({ rows: [{ column_name: 'starttime' }, { column_name: 'endtime' }] });
-        }
-
-        // For conflict checks (looking for existing appointments)
-        if (sqlLower.includes('overlaps') || (sqlLower.includes('select 1') && sqlLower.includes('where'))) {
-            return Promise.resolve(this.mockResults['CONFLICT'] || { rows: [] });
         }
 
         // For INSERT operations
@@ -27,17 +22,30 @@ const mockDb = {
             return Promise.resolve(this.mockResults['INSERT'] || { rows: [] });
         }
 
-        // For UPDATE operations (includes soft deletes)
+        // For UPDATE operations (includes soft deletes and RETURNING clauses)
         if (sqlLower.startsWith('update')) {
             return Promise.resolve(this.mockResults['UPDATE'] || { rows: [] });
         }
 
-        // For SELECT operations
+        // For SELECT operations - need to distinguish between conflict checks and data fetches
         if (sqlLower.startsWith('select')) {
-            // After INSERT, there's a SELECT to fetch the created appointment
-            // Return the data from SELECT mock
-            const result = this.mockResults['SELECT'] || { rows: [] };
-            return Promise.resolve(result);
+            // Conflict check queries - these look for SELECT 1 or use OVERLAPS
+            if (sqlLower.includes('select 1') || sqlLower.includes('overlaps')) {
+                return Promise.resolve(this.mockResults['CONFLICT'] || { rows: [] });
+            }
+
+            // Regular data SELECT queries - return the appointment data
+            const selectData = this.mockResults['SELECT'] || { rows: [] };
+
+            // If query has WHERE a.id = $1 or similar, filter by ID if provided
+            if (sqlLower.includes('where') && sqlLower.includes('.id') && params && params[0]) {
+                const requestedId = params[0];
+                const filtered = selectData.rows.filter(row => row.id === requestedId);
+                return Promise.resolve({ rows: filtered });
+            }
+
+            // Otherwise return all rows
+            return Promise.resolve(selectData);
         }
 
         // Fallback

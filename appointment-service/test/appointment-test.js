@@ -9,7 +9,7 @@ const mockDb = {
     queries: [],
     mockResults: {},
     query: async function(sql, params) {
-        this.queries.push({ sql, params });
+        mockDb.queries.push({ sql, params });
         const sqlLower = sql.toLowerCase();
 
         if (sqlLower.includes('information_schema')) {
@@ -17,23 +17,23 @@ const mockDb = {
         }
 
         if (sqlLower.includes('insert')) {
-            return this.mockResults['INSERT'] || { rows: [], rowCount: 1 };
+            return mockDb.mockResults['INSERT'] || { rows: [], rowCount: 1 };
         }
         if (sqlLower.includes('update')) {
-            return this.mockResults['UPDATE'] || { rows: [], rowCount: 1 };
+            return mockDb.mockResults['UPDATE'] || { rows: [], rowCount: 1 };
         }
         if (sqlLower.includes('select 1') || sqlLower.includes('overlaps')) {
-            return this.mockResults['CONFLICT'] || { rows: [] };
+            return mockDb.mockResults['CONFLICT'] || { rows: [] };
         }
         if (sqlLower.includes('select')) {
-            return this.mockResults['SELECT'] || { rows: [] };
+            return mockDb.mockResults['SELECT'] || { rows: [] };
         }
 
         return { rows: [], rowCount: 0 };
     },
     reset() {
-        this.queries = [];
-        this.mockResults = {};
+        mockDb.queries = [];
+        mockDb.mockResults = {};
     }
 };
 
@@ -41,7 +41,7 @@ const mockDb = {
 const mockKafka = {
     publishedEvents: [],
     publishEvent: async function(topic, payload, options) {
-        this.publishedEvents.push({ topic, payload, options });
+        mockKafka.publishedEvents.push({ topic, payload, options });
     },
     startConsumer: async function() {
         return {};

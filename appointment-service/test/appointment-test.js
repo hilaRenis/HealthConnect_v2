@@ -7,7 +7,37 @@ const mockDb = {
     mockResults: {},
     query(sql, params) {
         this.queries.push({ sql, params });
-        const key = sql.split(' ')[0];
+
+        // Smarter query matching
+        const sqlLower = sql.toLowerCase();
+
+        // Check for schema query
+        if (sqlLower.includes('information_schema')) {
+            return Promise.resolve({ rows: [{ column_name: 'starttime' }, { column_name: 'endtime' }] });
+        }
+
+        // For conflict checks (looking for existing appointments)
+        if (sqlLower.includes('overlaps') || (sqlLower.includes('select 1') && sqlLower.includes('where'))) {
+            return Promise.resolve(this.mockResults['CONFLICT'] || { rows: [] });
+        }
+
+        // For INSERT operations
+        if (sqlLower.startsWith('insert')) {
+            return Promise.resolve(this.mockResults['INSERT'] || { rows: [] });
+        }
+
+        // For UPDATE operations (includes soft deletes)
+        if (sqlLower.startsWith('update')) {
+            return Promise.resolve(this.mockResults['UPDATE'] || { rows: [] });
+        }
+
+        // For SELECT operations - use SELECT result
+        if (sqlLower.startsWith('select')) {
+            return Promise.resolve(this.mockResults['SELECT'] || { rows: [] });
+        }
+
+        // Fallback
+        const key = sql.split(' ')[0].toUpperCase();
         return Promise.resolve(this.mockResults[key] || { rows: [] });
     },
     reset() {
@@ -20,12 +50,13 @@ const mockDb = {
 const mockKafka = {
     publishedEvents: [],
     consumerStarted: false,
-    async publishEvent(topic, payload) {
-        this.publishedEvents.push({ topic, payload });
+    publishEvent: function(topic, payload) {
+        mockKafka.publishedEvents.push({ topic, payload });
+        return Promise.resolve();
     },
-    async startConsumer() {
-        this.consumerStarted = true;
-        return null;
+    startConsumer: function() {
+        mockKafka.consumerStarted = true;
+        return Promise.resolve(null);
     },
     reset() {
         this.publishedEvents = [];
@@ -102,10 +133,10 @@ async function runTests() {
             mockDb.reset();
             mockKafka.reset();
             await fn();
-            console.log(` ${name}`);
+            console.log(`✅ ${name}`);
             passed++;
         } catch (error) {
-            console.error(` ${name}`);
+            console.error(`❌ ${name}`);
             console.error(`   ${error.message}`);
             if (error.stack) {
                 console.error(`   ${error.stack.split('\n')[1]}`);
@@ -131,6 +162,7 @@ async function runTests() {
 
     // Create appointment tests
     await test('POST / - patient creates appointment successfully', async () => {
+        mockDb.mockResults.CONFLICT = { rows: [] }; // No conflicts
         mockDb.mockResults.SELECT = {
             rows: [
                 {
@@ -165,6 +197,7 @@ async function runTests() {
     });
 
     await test('POST / - admin creates appointment for patient', async () => {
+        mockDb.mockResults.CONFLICT = { rows: [] }; // No conflicts
         mockDb.mockResults.SELECT = {
             rows: [
                 {
@@ -194,6 +227,7 @@ async function runTests() {
     });
 
     await test('POST / - doctor creates appointment for patient', async () => {
+        mockDb.mockResults.CONFLICT = { rows: [] }; // No conflicts
         mockDb.mockResults.SELECT = {
             rows: [
                 {
@@ -247,7 +281,8 @@ async function runTests() {
     });
 
     await test('POST / - detects time slot conflict', async () => {
-        mockDb.mockResults.SELECT = { rows: [{ id: 'existing-appt' }] };
+        mockDb.mockResults.CONFLICT = { rows: [{ id: 'existing-appt' }] };
+        mockDb.mockResults.SELECT = { rows: [] }; // Empty for final SELECT after insert
 
         const res = await makeRequest('POST', '/', {
             user: { sub: 'patient-123', role: 'patient' },
@@ -393,6 +428,7 @@ async function runTests() {
 
     // Update appointment
     await test('PUT /:id - admin updates appointment', async () => {
+        mockDb.mockResults.CONFLICT = { rows: [] }; // No conflicts
         mockDb.mockResults.SELECT = {
             rows: [
                 {
@@ -579,6 +615,7 @@ async function runTests() {
 
     // Edge cases
     await test('POST / - handles startTime and endTime', async () => {
+        mockDb.mockResults.CONFLICT = { rows: [] }; // No conflicts
         mockDb.mockResults.SELECT = {
             rows: [
                 {
@@ -610,6 +647,7 @@ async function runTests() {
     });
 
     await test('POST / - auto-calculates endTime from startTime', async () => {
+        mockDb.mockResults.CONFLICT = { rows: [] }; // No conflicts
         mockDb.mockResults.SELECT = {
             rows: [
                 {
@@ -637,10 +675,10 @@ async function runTests() {
     });
 
     // Summary
-    console.log(`\n Test Results:`);
-    console.log(`   Passed: ${passed}`);
-    console.log(`   Failed: ${failed}`);
-    console.log(`   Total: ${passed + failed}`);
+    console.log(`\n📊 Test Results:`);
+    console.log(`   ✅ Passed: ${passed}`);
+    console.log(`   ❌ Failed: ${failed}`);
+    console.log(`   📈 Total: ${passed + failed}`);
 
     process.exit(failed > 0 ? 1 : 0);
 }

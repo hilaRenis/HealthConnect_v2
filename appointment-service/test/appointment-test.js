@@ -1,4 +1,4 @@
-//Triger test
+//Trigger test
 const assert = require('assert');
 
 // Mock database
@@ -64,7 +64,7 @@ function makeRequest(method, path, options = {}) {
         const req = require('http').request(
             {
                 hostname: 'localhost',
-                port: 3099,
+                port: 3004,
                 path,
                 method,
                 headers: {

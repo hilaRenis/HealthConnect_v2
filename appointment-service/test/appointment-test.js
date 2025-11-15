@@ -1,4 +1,4 @@
-//Triger test11
+//Triger test
 const assert = require('assert');
 
 // Mock database

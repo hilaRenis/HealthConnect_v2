@@ -1,4 +1,4 @@
-//Triger test1
+//Triger test
 const assert = require('assert');
 const jwt = require('jsonwebtoken');
 

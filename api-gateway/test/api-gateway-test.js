@@ -1,4 +1,3 @@
-//Triger test1
 const http = require('http');
 const assert = require('assert');
 const jwt = require('jsonwebtoken');
@@ -47,14 +46,14 @@ function createMockService(name, port) {
                 return;
             }
 
-            // Generic mock response for other services
+            // Health check for all services
             if (req.url === '/health') {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ service: name, ok: true }));
                 return;
             }
 
-            // Mock patient endpoint
+            // Mock endpoints for various services
             if (name === 'patient' && req.url.startsWith('/')) {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({
@@ -65,7 +64,6 @@ function createMockService(name, port) {
                 return;
             }
 
-            // Mock doctor endpoint
             if (name === 'doctor' && req.url.startsWith('/')) {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({
@@ -76,7 +74,6 @@ function createMockService(name, port) {
                 return;
             }
 
-            // Mock appointment endpoint
             if (name === 'appointment' && req.url.startsWith('/')) {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({
@@ -87,7 +84,6 @@ function createMockService(name, port) {
                 return;
             }
 
-            // Mock pharmacy endpoint
             if (name === 'pharmacy' && req.url.startsWith('/')) {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({
@@ -98,7 +94,6 @@ function createMockService(name, port) {
                 return;
             }
 
-            // Mock admin endpoint
             if (name === 'admin' && req.url.startsWith('/')) {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({
@@ -155,7 +150,7 @@ function makeRequest(options, postData = null) {
 
 // Test suite
 async function runTests() {
-    console.log('Starting API Gateway Tests...\n');
+    console.log('Starting Enhanced API Gateway Tests...\n');
 
     let passedTests = 0;
     let failedTests = 0;
@@ -469,6 +464,130 @@ async function runTests() {
             passedTests++;
         } catch (error) {
             console.error('✗ Missing authorization header test failed:', error.message);
+            failedTests++;
+        }
+
+        // Test 13: Authorization header without "Bearer " prefix
+        console.log('\n--- Test 13: Invalid Authorization Format ---');
+        try {
+            const response = await makeRequest({
+                hostname: 'localhost',
+                port: 8080,
+                path: '/api/patients',
+                method: 'GET',
+                headers: {
+                    'Authorization': 'InvalidFormat token123'
+                }
+            });
+
+            assert.strictEqual(response.statusCode, 401);
+            console.log('✓ Invalid authorization format rejected');
+            passedTests++;
+        } catch (error) {
+            console.error('✗ Invalid authorization format test failed:', error.message);
+            failedTests++;
+        }
+
+        // Test 14: POST request to patient service
+        console.log('\n--- Test 14: POST Request Proxying ---');
+        try {
+            const response = await makeRequest({
+                hostname: 'localhost',
+                port: 8080,
+                path: '/api/patients',
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }, {
+                name: 'Test Patient',
+                dob: '1990-01-01'
+            });
+
+            assert.strictEqual(response.statusCode, 200);
+            assert.strictEqual(response.body.service, 'patient');
+            console.log('✓ POST request proxying working');
+            passedTests++;
+        } catch (error) {
+            console.error('✗ POST request proxying test failed:', error.message);
+            failedTests++;
+        }
+
+        // Test 15: PUT request to appointment service
+        console.log('\n--- Test 15: PUT Request Proxying ---');
+        try {
+            const response = await makeRequest({
+                hostname: 'localhost',
+                port: 8080,
+                path: '/api/appointments/123',
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }, {
+                status: 'confirmed'
+            });
+
+            assert.strictEqual(response.statusCode, 200);
+            assert.strictEqual(response.body.service, 'appointment');
+            console.log('✓ PUT request proxying working');
+            passedTests++;
+        } catch (error) {
+            console.error('✗ PUT request proxying test failed:', error.message);
+            failedTests++;
+        }
+
+        // Test 16: DELETE request to admin service
+        console.log('\n--- Test 16: DELETE Request Proxying ---');
+        try {
+            const adminToken = jwt.sign({
+                userId: '789',
+                email: 'admin@example.com',
+                role: 'admin'
+            }, JWT_SECRET);
+
+            const response = await makeRequest({
+                hostname: 'localhost',
+                port: 8080,
+                path: '/api/admin/patient/123',
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${adminToken}`
+                }
+            });
+
+            assert.strictEqual(response.statusCode, 200);
+            assert.strictEqual(response.body.service, 'admin');
+            console.log('✓ DELETE request proxying working');
+            passedTests++;
+        } catch (error) {
+            console.error('✗ DELETE request proxying test failed:', error.message);
+            failedTests++;
+        }
+
+        // Test 17: Test auth service path rewrite
+        console.log('\n--- Test 17: Auth Service Path Rewrite ---');
+        try {
+            const response = await makeRequest({
+                hostname: 'localhost',
+                port: 8080,
+                path: '/api/auth/login',
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }, {
+                email: 'test@example.com',
+                password: 'password123'
+            });
+
+            assert.strictEqual(response.statusCode, 200);
+            console.log('✓ Auth service path rewrite working');
+            passedTests++;
+        } catch (error) {
+            console.error('✗ Auth service path rewrite test failed:', error.message);
             failedTests++;
         }
 

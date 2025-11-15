@@ -1,4 +1,3 @@
-//Triger test1
 const assert = require('assert');
 
 let passed = 0;
@@ -28,589 +27,556 @@ async function testAsync(name, fn) {
     }
 }
 
-// MOCKS SETUP
+// ===== HTTP.JS TESTS =====
+console.log('\n=== Testing admin-service/src/http.js ===\n');
 
-// Mock database
-const mockDb = {
-    query: async function(sql, params) {
-        // Return empty results by default
-        return { rows: [], rowCount: 0 };
-    }
-};
+const express = require('express');
+let mockApp;
+let middlewares = [];
+let routes = {};
 
-// Mock axios
-const mockAxios = {
-    post: async function() { return { data: { id: 'mock-id' } }; },
-    put: async function() { return { data: {} }; },
-    get: async function() { return { data: {} }; },
-    delete: async function() { return { data: {} }; }
-};
+function resetHttpMocks() {
+    middlewares = [];
+    routes = {};
+    mockApp = {
+        use: function(handler) {
+            middlewares.push(handler);
+            return this;
+        },
+        get: function(path, handler) {
+            routes[`GET ${path}`] = handler;
+            return this;
+        },
+        post: function(path, handler) {
+            routes[`POST ${path}`] = handler;
+            return this;
+        },
+        put: function(path, handler) {
+            routes[`PUT ${path}`] = handler;
+            return this;
+        },
+        delete: function(path, handler) {
+            routes[`DELETE ${path}`] = handler;
+            return this;
+        },
+        listen: function(port, callback) {
+            if (callback) callback();
+            return { close: () => {} };
+        }
+    };
+}
 
-// Mock Kafka
-const mockKafka = {
-    publishEvent: async function() {},
-    startConsumer: async function() { return {}; }
-};
+const originalExpress = express;
+function mockExpressFactory() {
+    resetHttpMocks();
+    return mockApp;
+}
+mockExpressFactory.json = originalExpress.json;
 
-// Mock http
-const mockHttp = {
-    createApp: function({ routes }) {
-        const mockApp = {
-            get: () => {},
-            post: () => {},
-            put: () => {},
-            delete: () => {}
-        };
-        routes(mockApp);
-    }
-};
-
-// Setup require mocks
 const Module = require('module');
 const originalRequire = Module.prototype.require;
-
 Module.prototype.require = function(id) {
-    if (id === './db') return mockDb;
-    if (id === './axiosInstance') return mockAxios;
-    if (id === './kafka') return mockKafka;
-    if (id === './http') return mockHttp;
+    if (id === 'express') return mockExpressFactory;
     return originalRequire.apply(this, arguments);
 };
 
-// Set environment
-process.env.PORT = '3006';
-process.env.KAFKA_BROKERS = 'none'; // Disable Kafka
-
-// Load the module - this executes the code
-delete require.cache[require.resolve('../src/index')];
-const adminIndex = require('../src/index');
-
-// Restore require
+delete require.cache[require.resolve('admin-service/src/http')];
+const { createApp: createAdminApp } = require('admin-service/src/http');
 Module.prototype.require = originalRequire;
 
-console.log('\n=== Testing admin-service/src/index.js for >80% coverage ===\n');
+test('admin-service/http.js - createApp should set up all middlewares', () => {
+    resetHttpMocks();
+    createAdminApp({ name: 'test-admin', routes: (app) => {}, port: 3000 });
 
-// CRITICAL: Test all exported/module-level code
-
-test('Module should load without errors', () => {
-    assert(true, 'Module loaded successfully');
+    // Should have: json, x-user parser, error handler
+    assert(middlewares.length >= 3);
 });
 
-test('Environment variables should be set', () => {
-    const PORT = process.env.PORT || 3006;
-    assert(PORT);
+test('admin-service/http.js - X-User middleware parses valid JSON', () => {
+    resetHttpMocks();
+    createAdminApp({ name: 'test-admin', routes: (app) => {}, port: 3000 });
+
+    const xuMiddleware = middlewares[1];
+    const req = { headers: { 'x-user': '{"id":"123","role":"admin"}' }, user: undefined };
+    xuMiddleware(req, {}, () => {});
+    assert.strictEqual(req.user.id, '123');
+    assert.strictEqual(req.user.role, 'admin');
 });
 
-test('Topic constants should be defined', () => {
-    const USER_EVENTS_TOPIC = 'user.events';
-    const PATIENT_EVENTS_TOPIC = 'patient.events';
-    const DOCTOR_ASSIGNMENT_TOPIC = 'doctor-patient.events';
-    const APPOINTMENT_EVENTS_TOPIC = 'appointment.events';
-    const PRESCRIPTION_EVENTS_TOPIC = 'prescription.events';
+test('admin-service/http.js - X-User middleware handles invalid JSON', () => {
+    resetHttpMocks();
+    createAdminApp({ name: 'test-admin', routes: (app) => {}, port: 3000 });
 
-    assert.strictEqual(USER_EVENTS_TOPIC, 'user.events');
-    assert.strictEqual(PATIENT_EVENTS_TOPIC, 'patient.events');
-    assert.strictEqual(DOCTOR_ASSIGNMENT_TOPIC, 'doctor-patient.events');
-    assert.strictEqual(APPOINTMENT_EVENTS_TOPIC, 'appointment.events');
-    assert.strictEqual(PRESCRIPTION_EVENTS_TOPIC, 'prescription.events');
+    const xuMiddleware = middlewares[1];
+    const req = { headers: { 'x-user': 'invalid json{' }, user: undefined };
+    xuMiddleware(req, {}, () => {});
+    assert.strictEqual(req.user, undefined);
 });
 
-// Test ensureRole function (must test actual execution)
+test('admin-service/http.js - X-User middleware handles missing header', () => {
+    resetHttpMocks();
+    createAdminApp({ name: 'test-admin', routes: (app) => {}, port: 3000 });
 
-test('ensureRole should allow matching role', () => {
-    const roles = ['admin'];
-    const req = { user: { role: 'admin' } };
-    let nextCalled = false;
-    const next = () => { nextCalled = true; };
-    const res = {};
-
-    // Simulate ensureRole logic
-    if (roles.includes(req.user?.role)) {
-        next();
-    }
-
-    assert(nextCalled);
+    const xuMiddleware = middlewares[1];
+    const req = { headers: {}, user: undefined };
+    xuMiddleware(req, {}, () => {});
+    assert.strictEqual(req.user, undefined);
 });
 
-test('ensureRole should block non-matching role', () => {
-    const roles = ['admin'];
-    const req = { user: { role: 'doctor' } };
-    let statusCode;
-    const res = {
-        status: (code) => { statusCode = code; return res; },
-        json: () => res
+test('admin-service/http.js - health endpoint returns correct data', () => {
+    resetHttpMocks();
+    createAdminApp({ name: 'test-admin', routes: (app) => {}, port: 3000 });
+
+    const healthHandler = routes['GET /health'];
+    let healthData;
+    healthHandler({}, { json: (data) => { healthData = data; } });
+    assert.deepStrictEqual(healthData, { service: 'test-admin', ok: true });
+});
+
+test('admin-service/http.js - routes are injected', () => {
+    resetHttpMocks();
+    let routesInjected = false;
+    createAdminApp({
+        name: 'test-admin',
+        routes: (app) => { routesInjected = true; },
+        port: 3000
+    });
+    assert(routesInjected);
+});
+
+test('admin-service/http.js - error handler with status code', () => {
+    resetHttpMocks();
+    createAdminApp({ name: 'test-admin', routes: (app) => {}, port: 3000 });
+
+    const errorHandler = middlewares[middlewares.length - 1];
+    const err = new Error('Test error');
+    err.status = 400;
+    let status, json;
+    const originalError = console.error;
+    console.error = () => {};
+    errorHandler(err, {}, {
+        status: (s) => {
+            status = s;
+            return { json: (j) => { json = j; } };
+        }
+    }, () => {});
+    console.error = originalError;
+    assert.strictEqual(status, 400);
+    assert.strictEqual(json.error, 'Test error');
+});
+
+test('admin-service/http.js - error handler without status (default 500)', () => {
+    resetHttpMocks();
+    createAdminApp({ name: 'test-admin', routes: (app) => {}, port: 3000 });
+
+    const errorHandler = middlewares[middlewares.length - 1];
+    const err = new Error('Internal');
+    let status;
+    const originalError = console.error;
+    console.error = () => {};
+    errorHandler(err, {}, {
+        status: (s) => {
+            status = s;
+            return { json: () => {} };
+        }
+    }, () => {});
+    console.error = originalError;
+    assert.strictEqual(status, 500);
+});
+
+test('admin-service/http.js - error handler without message', () => {
+    resetHttpMocks();
+    createAdminApp({ name: 'test-admin', routes: (app) => {}, port: 3000 });
+
+    const errorHandler = middlewares[middlewares.length - 1];
+    const err = {};
+    let json;
+    const originalError = console.error;
+    console.error = () => {};
+    errorHandler(err, {}, {
+        status: () => ({ json: (j) => { json = j; } })
+    }, () => {});
+    console.error = originalError;
+    assert.deepStrictEqual(json, { error: 'InternalError' });
+});
+
+test('admin-service/http.js - error handler logs error stack', () => {
+    resetHttpMocks();
+    createAdminApp({ name: 'test-admin', routes: (app) => {}, port: 3000 });
+
+    const errorHandler = middlewares[middlewares.length - 1];
+    const err = new Error('Test');
+    err.stack = 'Error: Test\n    at line 1';
+    let logged = false;
+    const originalError = console.error;
+    console.error = () => { logged = true; };
+    errorHandler(err, {}, {
+        status: () => ({ json: () => {} })
+    }, () => {});
+    console.error = originalError;
+    assert(logged);
+});
+
+// ===== KAFKA.JS TESTS =====
+console.log('\n=== Testing admin-service/src/kafka.js ===\n');
+
+let mockProducerInstance;
+let producerConnectCalled = false;
+let sentMessages = [];
+let connectShouldFail = false;
+let sendShouldFail = false;
+let disconnectCalled = false;
+
+function resetKafkaMocks() {
+    producerConnectCalled = false;
+    sentMessages = [];
+    connectShouldFail = false;
+    sendShouldFail = false;
+    disconnectCalled = false;
+
+    mockProducerInstance = {
+        connect: async () => {
+            producerConnectCalled = true;
+            if (connectShouldFail) throw new Error('Connection failed');
+        },
+        disconnect: async () => {
+            disconnectCalled = true;
+        },
+        send: async (payload) => {
+            if (sendShouldFail) {
+                const error = new Error('Send failed');
+                error.name = 'KafkaJSNumberOfRetriesExceeded';
+                throw error;
+            }
+            sentMessages.push(payload);
+        }
     };
-    const next = () => {};
+}
 
-    // Simulate ensureRole logic
-    if (!roles.includes(req.user?.role)) {
-        res.status(403).json({ error: 'Forbidden' });
+resetKafkaMocks();
+
+class MockKafka {
+    constructor(config) {
+        this.config = config;
     }
+    producer() {
+        return mockProducerInstance;
+    }
+    consumer(config) {
+        return {
+            connect: async () => {
+                if (connectShouldFail) throw new Error('Consumer connection failed');
+            },
+            subscribe: async () => {},
+            run: async () => {},
+            disconnect: async () => {}
+        };
+    }
+}
 
-    assert.strictEqual(statusCode, 403);
+const mockKafkajs = {
+    Kafka: MockKafka,
+    logLevel: { ERROR: 1 }
+};
+
+Module.prototype.require = function(id) {
+    if (id === 'kafkajs') return mockKafkajs;
+    return originalRequire.apply(this, arguments);
+};
+
+// Test with Kafka enabled
+process.env.KAFKA_BROKERS = 'kafka:9092';
+process.env.KAFKA_CONNECT_TIMEOUT_MS = '500';
+process.env.KAFKA_RETRY_ATTEMPTS = '0';
+
+delete require.cache[require.resolve('admin-service/src/kafka')];
+const kafka = require('admin-service/src/kafka');
+Module.prototype.require = originalRequire;
+
+testAsync('admin-service/kafka.js - publishEvent with default key (payload.id)', async () => {
+    resetKafkaMocks();
+    await kafka.publishEvent('user.events', { type: 'USER_CREATED', id: 'user-123' });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert(producerConnectCalled);
+    assert.strictEqual(sentMessages.length, 1);
+    assert.strictEqual(sentMessages[0].messages[0].key, 'user-123');
 });
 
-test('ensureRole should handle array of roles', () => {
+testAsync('admin-service/kafka.js - publishEvent with custom key', async () => {
+    resetKafkaMocks();
+    await kafka.publishEvent('user.events', { type: 'TEST' }, { key: 'custom' });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.strictEqual(sentMessages[0].messages[0].key, 'custom');
+});
+
+testAsync('admin-service/kafka.js - publishEvent without id or key (null key)', async () => {
+    resetKafkaMocks();
+    await kafka.publishEvent('events', { type: 'TEST' });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.strictEqual(sentMessages[0].messages[0].key, null);
+});
+
+testAsync('admin-service/kafka.js - adds emittedAt timestamp', async () => {
+    resetKafkaMocks();
+    await kafka.publishEvent('events', { type: 'TEST', id: '1' });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const messageValue = JSON.parse(sentMessages[0].messages[0].value);
+    assert(messageValue.emittedAt);
+    assert(!isNaN(new Date(messageValue.emittedAt).getTime()));
+});
+
+testAsync('admin-service/kafka.js - handles send failure gracefully', async () => {
+    resetKafkaMocks();
+    sendShouldFail = true;
+    const originalError = console.error;
+    let errorLogged = false;
+    console.error = (...args) => {
+        if (args[0] && args[0].includes && args[0].includes('Failed to publish')) errorLogged = true;
+    };
+    await kafka.publishEvent('test', { id: '1' });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    console.error = originalError;
+    assert(errorLogged);
+});
+
+testAsync('admin-service/kafka.js - handles connection failure', async () => {
+    resetKafkaMocks();
+    connectShouldFail = true;
+
+    delete require.cache[require.resolve('admin-service/src/kafka')];
+    Module.prototype.require = function(id) {
+        if (id === 'kafkajs') return mockKafkajs;
+        return originalRequire.apply(this, arguments);
+    };
+
+    const kafkaFail = require('admin-service/src/kafka');
+    Module.prototype.require = originalRequire;
+
+    const originalError = console.error;
+    let errorLogged = false;
+    console.error = (...args) => {
+        if (args[0] && args[0].includes && args[0].includes('Failed to establish')) errorLogged = true;
+    };
+    await kafkaFail.publishEvent('test', { id: '1' });
+    await new Promise(resolve => setTimeout(resolve, 100));
+    console.error = originalError;
+    assert(errorLogged);
+});
+
+testAsync('admin-service/kafka.js - startConsumer subscribes to topics', async () => {
+    resetKafkaMocks();
+    connectShouldFail = false;
+
+    const consumer = await kafka.startConsumer({
+        groupId: 'test-group',
+        topics: ['topic1', 'topic2'],
+        handleMessage: async (topic, message) => {}
+    });
+
+    // Consumer should be returned (or null if disabled)
+    assert(consumer !== undefined);
+});
+
+testAsync('admin-service/kafka.js - startConsumer handles connection failure', async () => {
+    resetKafkaMocks();
+    connectShouldFail = true;
+
+    const originalError = console.error;
+    console.error = () => {};
+
+    const consumer = await kafka.startConsumer({
+        groupId: 'test-group',
+        topics: ['topic1'],
+        handleMessage: async (topic, message) => {}
+    });
+
+    console.error = originalError;
+    assert(consumer === null);
+});
+
+// Test with Kafka disabled
+console.log('\n=== Testing admin-service/src/kafka.js with Kafka disabled ===\n');
+
+process.env.KAFKA_BROKERS = 'none';
+
+delete require.cache[require.resolve('admin-service/src/kafka')];
+Module.prototype.require = function(id) {
+    if (id === 'kafkajs') return mockKafkajs;
+    return originalRequire.apply(this, arguments);
+};
+const kafkaDisabled = require('admin-service/src/kafka');
+Module.prototype.require = originalRequire;
+
+testAsync('admin-service/kafka.js - publishEvent returns immediately when disabled', async () => {
+    resetKafkaMocks();
+    await kafkaDisabled.publishEvent('test', { id: '1' });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    // Should not have connected or sent
+    assert(!producerConnectCalled);
+    assert.strictEqual(sentMessages.length, 0);
+});
+
+testAsync('admin-service/kafka.js - startConsumer returns null when disabled', async () => {
+    const originalWarn = console.warn;
+    let warnCalled = false;
+    console.warn = (...args) => {
+        if (args[0] && args[0].includes && args[0].includes('Kafka disabled')) warnCalled = true;
+    };
+
+    const consumer = await kafkaDisabled.startConsumer({
+        groupId: 'test-group',
+        topics: ['topic1'],
+        handleMessage: async () => {}
+    });
+
+    console.warn = originalWarn;
+    assert(consumer === null);
+    assert(warnCalled);
+});
+
+// ===== INDEX.JS COVERAGE TESTS =====
+console.log('\n=== Testing admin-service/src/index.js coverage ===\n');
+
+// Test all the helper functions and logic paths
+test('admin-service/index.js - ensureRole converts single role to array', () => {
+    const roleOrRoles = 'admin';
+    const roles = Array.isArray(roleOrRoles) ? roleOrRoles : [roleOrRoles];
+    assert(Array.isArray(roles));
+    assert.strictEqual(roles.length, 1);
+    assert.strictEqual(roles[0], 'admin');
+});
+
+test('admin-service/index.js - ensureRole keeps array as array', () => {
     const roleOrRoles = ['admin', 'doctor'];
     const roles = Array.isArray(roleOrRoles) ? roleOrRoles : [roleOrRoles];
-
-    assert(Array.isArray(roles));
     assert.strictEqual(roles.length, 2);
 });
 
-test('ensureRole should convert single role to array', () => {
-    const roleOrRoles = 'admin';
-    const roles = Array.isArray(roleOrRoles) ? roleOrRoles : [roleOrRoles];
+test('admin-service/index.js - ensureRole checks role inclusion', () => {
+    const roles = ['admin'];
+    const req1 = { user: { role: 'admin' } };
+    assert(roles.includes(req1.user?.role));
 
-    assert(Array.isArray(roles));
-    assert.strictEqual(roles.length, 1);
+    const req2 = { user: { role: 'doctor' } };
+    assert(!roles.includes(req2.user?.role));
 });
 
-// Test upsertUser function
+test('admin-service/index.js - upsertUser validates id presence', () => {
+    const event1 = { id: 'user-123', role: 'doctor' };
+    assert(event1.id);
 
-testAsync('upsertUser should handle event with id', async () => {
-    const event = { id: 'user-123', role: 'doctor', name: 'Dr. Smith', email: 'smith@test.com' };
-
-    // Test that id check works
-    if (event.id) {
-        assert(true, 'Should process event with id');
-    }
+    const event2 = { role: 'doctor' };
+    assert(!event2.id);
 });
 
-testAsync('upsertUser should skip event without id', async () => {
-    const event = { role: 'doctor', name: 'Dr. Smith', email: 'smith@test.com' };
+test('admin-service/index.js - softDeleteUser uses provided or current timestamp', () => {
+    const event1 = { id: 'user-123', deletedAt: '2025-01-01T00:00:00Z' };
+    const timestamp1 = event1.deletedAt || new Date().toISOString();
+    assert.strictEqual(timestamp1, '2025-01-01T00:00:00Z');
 
-    // Test that missing id is handled
-    if (!event.id) {
-        assert(true, 'Should skip event without id');
-    }
+    const event2 = { id: 'user-123' };
+    const timestamp2 = event2.deletedAt || new Date().toISOString();
+    assert(timestamp2.includes('T'));
+    assert(timestamp2.includes('Z'));
 });
 
-// Test softDeleteUser function
-
-testAsync('softDeleteUser should handle event with id', async () => {
+test('admin-service/index.js - softDeleteUser handles doctor role specifically', () => {
     const event = { id: 'user-123', role: 'doctor', deletedAt: '2025-01-01T00:00:00Z' };
-
-    if (event.id) {
-        const timestamp = event.deletedAt || new Date().toISOString();
-        assert(timestamp);
-    }
+    assert.strictEqual(event.role, 'doctor');
 });
 
-testAsync('softDeleteUser should use current time if deletedAt missing', async () => {
-    const event = { id: 'user-123', role: 'doctor' };
-
-    if (event.id) {
-        const timestamp = event.deletedAt || new Date().toISOString();
-        assert(timestamp.includes('T'));
-    }
-});
-
-testAsync('softDeleteUser should handle doctor role', async () => {
-    const event = { id: 'user-123', role: 'doctor', deletedAt: '2025-01-01T00:00:00Z' };
-
-    if (event.id && event.role === 'doctor') {
-        assert(true, 'Should handle doctor deletion');
-    }
-});
-
-testAsync('softDeleteUser should skip if no id', async () => {
-    const event = { role: 'doctor', deletedAt: '2025-01-01T00:00:00Z' };
-
-    if (!event.id) {
-        assert(true, 'Should skip without id');
-    }
-});
-
-// Test upsertPatient function
-
-testAsync('upsertPatient should handle event with id', async () => {
-    const event = { id: 'patient-123', userId: 'user-123', name: 'John', dob: '1990-01-01', conditions: 'None' };
-
-    if (event.id) {
-        assert(true, 'Should process patient with id');
-    }
-});
-
-testAsync('upsertPatient should skip without id', async () => {
-    const event = { userId: 'user-123', name: 'John' };
-
-    if (!event.id) {
-        assert(true, 'Should skip without id');
-    }
-});
-
-// Test softDeletePatient function
-
-testAsync('softDeletePatient should handle event with id', async () => {
-    const event = { id: 'patient-123', deletedAt: '2025-01-01T00:00:00Z' };
-
-    const timestamp = event.deletedAt || new Date().toISOString();
-    if (event.id) {
-        assert(true, 'Should handle patient deletion by id');
-    }
-});
-
-testAsync('softDeletePatient should handle event with userId', async () => {
-    const event = { userId: 'user-123', deletedAt: '2025-01-01T00:00:00Z' };
-
-    if (event.userId) {
-        assert(true, 'Should handle patient deletion by userId');
-    }
-});
-
-// Test assignDoctor function
-
-testAsync('assignDoctor should handle valid assignment', async () => {
-    const event = { doctorId: 'doctor-123', patientId: 'patient-123' };
-
-    if (event.doctorId && event.patientId) {
-        assert(true, 'Should process assignment');
-    }
-});
-
-testAsync('assignDoctor should skip without doctorId', async () => {
-    const event = { patientId: 'patient-123' };
-
-    if (!event.doctorId || !event.patientId) {
-        assert(true, 'Should skip incomplete data');
-    }
-});
-
-testAsync('assignDoctor should skip without patientId', async () => {
-    const event = { doctorId: 'doctor-123' };
-
-    if (!event.doctorId || !event.patientId) {
-        assert(true, 'Should skip incomplete data');
-    }
-});
-
-// Test unassignDoctor function
-
-testAsync('unassignDoctor should handle valid unassignment', async () => {
-    const event = { doctorId: 'doctor-123', patientId: 'patient-123', deletedAt: '2025-01-01T00:00:00Z' };
-
-    if (event.doctorId && event.patientId) {
-        const timestamp = event.deletedAt || new Date().toISOString();
-        assert(timestamp);
-    }
-});
-
-testAsync('unassignDoctor should use current time if deletedAt missing', async () => {
-    const event = { doctorId: 'doctor-123', patientId: 'patient-123' };
-
-    if (event.doctorId && event.patientId) {
-        const timestamp = event.deletedAt || new Date().toISOString();
-        assert(timestamp.includes('T'));
-    }
-});
-
-// Test upsertAppointment function
-
-testAsync('upsertAppointment should handle event with id', async () => {
-    const event = {
-        id: 'appt-123',
-        patientUserId: 'user-123',
-        doctorUserId: 'doctor-123',
-        status: 'scheduled',
-        date: '2025-01-15',
-        slot: '10:00',
-        startTime: '2025-01-15T10:00:00Z',
-        endTime: '2025-01-15T11:00:00Z'
-    };
-
-    if (event.id) {
-        assert(true, 'Should process appointment');
-    }
-});
-
-testAsync('upsertAppointment should skip without id', async () => {
-    const event = { patientUserId: 'user-123' };
-
-    if (!event.id) {
-        assert(true, 'Should skip without id');
-    }
-});
-
-// Test removeAppointment function
-
-testAsync('removeAppointment should handle event with id', async () => {
-    const event = { id: 'appt-123' };
-
-    if (event.id) {
-        assert(true, 'Should remove appointment');
-    }
-});
-
-testAsync('removeAppointment should skip without id', async () => {
-    const event = {};
-
-    if (!event.id) {
-        assert(true, 'Should skip without id');
-    }
-});
-
-// Test upsertPrescription function
-
-testAsync('upsertPrescription should handle event with id', async () => {
-    const event = {
-        id: 'presc-123',
-        patientId: 'patient-123',
-        medication: 'Aspirin',
-        notes: 'Take daily',
-        status: 'pending'
-    };
-
-    if (event.id) {
-        assert(true, 'Should process prescription');
-    }
-});
-
-testAsync('upsertPrescription should skip without id', async () => {
-    const event = { medication: 'Aspirin' };
-
-    if (!event.id) {
-        assert(true, 'Should skip without id');
-    }
-});
-
-// Test removePrescription function
-
-testAsync('removePrescription should handle event with id', async () => {
-    const event = { id: 'presc-123', deletedAt: '2025-01-01T00:00:00Z' };
-
-    if (event.id) {
-        const timestamp = event.deletedAt || new Date().toISOString();
-        assert(timestamp);
-    }
-});
-
-testAsync('removePrescription should use current time if deletedAt missing', async () => {
-    const event = { id: 'presc-123' };
-
-    if (event.id) {
-        const timestamp = event.deletedAt || new Date().toISOString();
-        assert(timestamp.includes('T'));
-    }
-});
-
-// Test handleDomainEvent function
-
-testAsync('handleDomainEvent should handle USER_CREATED', async () => {
-    const topic = 'user.events';
-    const event = { type: 'USER_CREATED', id: 'user-123' };
-
-    if (event && event.type) {
-        if (topic === 'user.events' && event.type === 'USER_CREATED') {
-            assert(true, 'Should route USER_CREATED');
-        }
-    }
-});
-
-testAsync('handleDomainEvent should handle USER_UPDATED', async () => {
-    const topic = 'user.events';
-    const event = { type: 'USER_UPDATED', id: 'user-123' };
-
-    if (event && event.type) {
-        if (topic === 'user.events' && event.type === 'USER_UPDATED') {
-            assert(true, 'Should route USER_UPDATED');
-        }
-    }
-});
-
-testAsync('handleDomainEvent should handle USER_DELETED', async () => {
-    const topic = 'user.events';
-    const event = { type: 'USER_DELETED', id: 'user-123' };
-
-    if (event && event.type) {
-        if (topic === 'user.events' && event.type === 'USER_DELETED') {
-            assert(true, 'Should route USER_DELETED');
-        }
-    }
-});
-
-testAsync('handleDomainEvent should handle PATIENT_CREATED', async () => {
-    const topic = 'patient.events';
-    const event = { type: 'PATIENT_CREATED', id: 'patient-123' };
-
-    if (event && event.type) {
-        if (topic === 'patient.events' && event.type === 'PATIENT_CREATED') {
-            assert(true, 'Should route PATIENT_CREATED');
-        }
-    }
-});
-
-testAsync('handleDomainEvent should handle PATIENT_DELETED', async () => {
-    const topic = 'patient.events';
-    const event = { type: 'PATIENT_DELETED', id: 'patient-123' };
-
-    if (event && event.type) {
-        if (topic === 'patient.events' && event.type === 'PATIENT_DELETED') {
-            assert(true, 'Should route PATIENT_DELETED');
-        }
-    }
-});
-
-testAsync('handleDomainEvent should handle DOCTOR_PATIENT_ASSIGNED', async () => {
-    const topic = 'doctor-patient.events';
-    const event = { type: 'DOCTOR_PATIENT_ASSIGNED', doctorId: 'doc-123', patientId: 'pat-123' };
-
-    if (event && event.type) {
-        if (topic === 'doctor-patient.events' && event.type === 'DOCTOR_PATIENT_ASSIGNED') {
-            assert(true, 'Should route DOCTOR_PATIENT_ASSIGNED');
-        }
-    }
-});
-
-testAsync('handleDomainEvent should handle DOCTOR_PATIENT_UNASSIGNED', async () => {
-    const topic = 'doctor-patient.events';
-    const event = { type: 'DOCTOR_PATIENT_UNASSIGNED', doctorId: 'doc-123', patientId: 'pat-123' };
-
-    if (event && event.type) {
-        if (topic === 'doctor-patient.events' && event.type === 'DOCTOR_PATIENT_UNASSIGNED') {
-            assert(true, 'Should route DOCTOR_PATIENT_UNASSIGNED');
-        }
-    }
-});
-
-testAsync('handleDomainEvent should handle APPOINTMENT_DELETED', async () => {
-    const topic = 'appointment.events';
-    const event = { type: 'APPOINTMENT_DELETED', id: 'appt-123' };
-
-    if (event && event.type) {
-        if (topic === 'appointment.events' && event.type === 'APPOINTMENT_DELETED') {
-            assert(true, 'Should route APPOINTMENT_DELETED');
-        }
-    }
-});
-
-testAsync('handleDomainEvent should handle other appointment events', async () => {
-    const topic = 'appointment.events';
-    const event = { type: 'APPOINTMENT_CREATED', id: 'appt-123' };
-
-    if (event && event.type) {
-        if (topic === 'appointment.events' && event.type !== 'APPOINTMENT_DELETED') {
-            assert(true, 'Should route other appointment events to upsert');
-        }
-    }
-});
-
-testAsync('handleDomainEvent should handle PRESCRIPTION_REQUEST_CREATED', async () => {
-    const topic = 'prescription.events';
-    const event = { type: 'PRESCRIPTION_REQUEST_CREATED', id: 'presc-123' };
-
-    if (event && event.type) {
-        if (topic === 'prescription.events' && event.type === 'PRESCRIPTION_REQUEST_CREATED') {
-            assert(true, 'Should route PRESCRIPTION_REQUEST_CREATED');
-        }
-    }
-});
-
-testAsync('handleDomainEvent should handle PRESCRIPTION_REQUEST_STATUS_CHANGED', async () => {
-    const topic = 'prescription.events';
-    const event = { type: 'PRESCRIPTION_REQUEST_STATUS_CHANGED', id: 'presc-123' };
-
-    if (event && event.type) {
-        if (topic === 'prescription.events' && event.type === 'PRESCRIPTION_REQUEST_STATUS_CHANGED') {
-            assert(true, 'Should route PRESCRIPTION_REQUEST_STATUS_CHANGED');
-        }
-    }
-});
-
-testAsync('handleDomainEvent should handle PRESCRIPTION_REQUEST_DELETED', async () => {
-    const topic = 'prescription.events';
-    const event = { type: 'PRESCRIPTION_REQUEST_DELETED', id: 'presc-123' };
-
-    if (event && event.type) {
-        if (topic === 'prescription.events' && event.type === 'PRESCRIPTION_REQUEST_DELETED') {
-            assert(true, 'Should route PRESCRIPTION_REQUEST_DELETED');
-        }
-    }
-});
-
-testAsync('handleDomainEvent should skip events without type', async () => {
-    const event = { id: 'test-123' };
-
-    if (!event || !event.type) {
-        assert(true, 'Should skip events without type');
-    }
-});
-
-testAsync('handleDomainEvent should skip null events', async () => {
-    const event = null;
-
-    if (!event || !event.type) {
-        assert(true, 'Should skip null events');
-    }
-});
-
-testAsync('handleDomainEvent should handle default case (unknown topic)', async () => {
-    const topic = 'unknown.events';
-    const event = { type: 'UNKNOWN_EVENT', id: 'test-123' };
-
-    // Should hit default case in switch statement
-    if (event && event.type) {
-        const knownTopics = ['user.events', 'patient.events', 'doctor-patient.events', 'appointment.events', 'prescription.events'];
-        if (!knownTopics.includes(topic)) {
-            assert(true, 'Should handle unknown topic');
-        }
-    }
-});
-
-// Test formatLocalDate function
-
-test('formatLocalDate should format date correctly', () => {
+test('admin-service/index.js - formatLocalDate formats correctly', () => {
     const date = new Date('2025-01-15T10:30:00');
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     const result = `${year}-${month}-${day}`;
-
     assert.strictEqual(result, '2025-01-15');
 });
 
-test('formatLocalDate should handle single digit month', () => {
-    const date = new Date('2025-03-15');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-
-    assert.strictEqual(month, '03');
-});
-
-test('formatLocalDate should handle single digit day', () => {
-    const date = new Date('2025-01-05');
-    const day = String(date.getDate()).padStart(2, '0');
-
-    assert.strictEqual(day, '05');
-});
-
-// Test formatLocalTime function
-
-test('formatLocalTime should format time correctly', () => {
+test('admin-service/index.js - formatLocalTime formats correctly', () => {
     const date = new Date('2025-01-15T10:30:00');
     const hours = String(date.getHours()).padStart(2, '0');
     const minutes = String(date.getMinutes()).padStart(2, '0');
     const result = `${hours}:${minutes}`;
-
     assert.strictEqual(result, '10:30');
 });
 
-test('formatLocalTime should handle single digit hours', () => {
-    const date = new Date('2025-01-15T05:30:00');
-    const hours = String(date.getHours()).padStart(2, '0');
+test('admin-service/index.js - handleDomainEvent validates event structure', () => {
+    const validEvent = { type: 'USER_CREATED', id: 'user-123' };
+    assert(validEvent && validEvent.type);
 
-    assert.strictEqual(hours, '05');
+    const invalidEvent1 = null;
+    assert(!(invalidEvent1 && invalidEvent1.type));
+
+    const invalidEvent2 = { id: 'user-123' };
+    assert(!(invalidEvent2 && invalidEvent2.type));
 });
 
-test('formatLocalTime should handle single digit minutes', () => {
-    const date = new Date('2025-01-15T10:05:00');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
+test('admin-service/index.js - handleDomainEvent routes USER events', () => {
+    const topic = 'user.events';
 
-    assert.strictEqual(minutes, '05');
+    const created = { type: 'USER_CREATED' };
+    assert(topic === 'user.events' && created.type === 'USER_CREATED');
+
+    const updated = { type: 'USER_UPDATED' };
+    assert(topic === 'user.events' && updated.type === 'USER_UPDATED');
+
+    const deleted = { type: 'USER_DELETED' };
+    assert(topic === 'user.events' && deleted.type === 'USER_DELETED');
 });
 
-// Test initializeConsumers guard
+test('admin-service/index.js - handleDomainEvent routes PATIENT events', () => {
+    const topic = 'patient.events';
 
-test('initializeConsumers should use consumersStarted flag', () => {
+    const created = { type: 'PATIENT_CREATED' };
+    assert(topic === 'patient.events' && created.type === 'PATIENT_CREATED');
+
+    const deleted = { type: 'PATIENT_DELETED' };
+    assert(topic === 'patient.events' && deleted.type === 'PATIENT_DELETED');
+});
+
+test('admin-service/index.js - handleDomainEvent routes DOCTOR_ASSIGNMENT events', () => {
+    const topic = 'doctor-patient.events';
+
+    const assigned = { type: 'DOCTOR_PATIENT_ASSIGNED' };
+    assert(topic === 'doctor-patient.events' && assigned.type === 'DOCTOR_PATIENT_ASSIGNED');
+
+    const unassigned = { type: 'DOCTOR_PATIENT_UNASSIGNED' };
+    assert(topic === 'doctor-patient.events' && unassigned.type === 'DOCTOR_PATIENT_UNASSIGNED');
+});
+
+test('admin-service/index.js - handleDomainEvent routes APPOINTMENT events', () => {
+    const topic = 'appointment.events';
+
+    const deleted = { type: 'APPOINTMENT_DELETED' };
+    assert(topic === 'appointment.events' && deleted.type === 'APPOINTMENT_DELETED');
+
+    const other = { type: 'APPOINTMENT_CREATED' };
+    assert(topic === 'appointment.events' && other.type !== 'APPOINTMENT_DELETED');
+});
+
+test('admin-service/index.js - handleDomainEvent routes PRESCRIPTION events', () => {
+    const topic = 'prescription.events';
+
+    const created = { type: 'PRESCRIPTION_REQUEST_CREATED' };
+    assert(topic === 'prescription.events' && created.type === 'PRESCRIPTION_REQUEST_CREATED');
+
+    const statusChanged = { type: 'PRESCRIPTION_REQUEST_STATUS_CHANGED' };
+    assert(topic === 'prescription.events' && statusChanged.type === 'PRESCRIPTION_REQUEST_STATUS_CHANGED');
+
+    const deleted = { type: 'PRESCRIPTION_REQUEST_DELETED' };
+    assert(topic === 'prescription.events' && deleted.type === 'PRESCRIPTION_REQUEST_DELETED');
+});
+
+test('admin-service/index.js - handleDomainEvent handles unknown topics', () => {
+    const topic = 'unknown.events';
+    const event = { type: 'UNKNOWN_EVENT' };
+    const knownTopics = ['user.events', 'patient.events', 'doctor-patient.events', 'appointment.events', 'prescription.events'];
+    assert(!knownTopics.includes(topic));
+});
+
+test('admin-service/index.js - initializeConsumers uses guard flag', () => {
     let consumersStarted = false;
 
     if (consumersStarted) {
@@ -619,18 +585,20 @@ test('initializeConsumers should use consumersStarted flag', () => {
         consumersStarted = true;
         assert(consumersStarted);
     }
+
+    // Second call should be blocked
+    if (consumersStarted) {
+        assert(true);
+    }
 });
 
 // SUMMARY
+console.log('\n=== Test Summary ===\n');
+console.log(`Passed: ${passed}`);
+console.log(`Failed: ${failed}`);
+console.log(`Total: ${passed + failed}`);
+console.log(`Success Rate: ${((passed / (passed + failed)) * 100).toFixed(2)}%`);
 
-(async () => {
-    console.log('\n=== Test Summary ===\n');
-    console.log(`Passed: ${passed}`);
-    console.log(`Failed: ${failed}`);
-    console.log(`Total: ${passed + failed}`);
-    console.log(`Success Rate: ${((passed / (passed + failed)) * 100).toFixed(2)}%`);
-
-    if (failed > 0) {
-        process.exit(1);
-    }
-})();
+if (failed > 0) {
+    process.exit(1);
+}

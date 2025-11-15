@@ -57,18 +57,18 @@ const mockAxiosInstance = {
 };
 
 // Setup mocks
-require.cache[require.resolve('../doctor-service/src/db')] = { exports: mockDb };
-require.cache[require.resolve('../doctor-service/src/kafka')] = { exports: mockKafka };
+require.cache[require.resolve('../src/db')] = { exports: mockDb };
+require.cache[require.resolve('../src/kafka')] = { exports: mockKafka };
 require.cache[require.resolve('axios')] = { exports: mockAxios };
-require.cache[require.resolve('../doctor-service/src/axiosInstance')] = { exports: mockAxiosInstance };
+require.cache[require.resolve('../src/axiosInstance')] = { exports: mockAxiosInstance };
 
 // Set environment
 process.env.PORT = '3003';
 process.env.KAFKA_BROKERS = 'none';
 
 // Load the service
-delete require.cache[require.resolve('../doctor-service/src/index')];
-require('../doctor-service/src/index');
+delete require.cache[require.resolve('../src/index')];
+require('../src/index');
 
 function makeRequest(method, path, options = {}) {
     return new Promise((resolve, reject) => {

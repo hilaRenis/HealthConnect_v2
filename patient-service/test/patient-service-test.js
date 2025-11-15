@@ -45,8 +45,8 @@ const mockKafka = {
 };
 
 // Setup mocks
-require.cache[require.resolve('../patient-service/src/db')] = { exports: mockDb };
-require.cache[require.resolve('../patient-service/src/kafka')] = { exports: mockKafka };
+require.cache[require.resolve('../src/db')] = { exports: mockDb };
+require.cache[require.resolve('../src/kafka')] = { exports: mockKafka };
 require.cache[require.resolve('nanoid')] = { exports: { nanoid: () => 'test-patient-123' } };
 
 // Set environment
@@ -54,8 +54,8 @@ process.env.PORT = '3002';
 process.env.KAFKA_BROKERS = 'none';
 
 // Load the service
-delete require.cache[require.resolve('../patient-service/src/index')];
-require('../patient-service/src/index');
+delete require.cache[require.resolve('../src/index')];
+require('../src/index');
 
 function makeRequest(method, path, options = {}) {
     return new Promise((resolve, reject) => {

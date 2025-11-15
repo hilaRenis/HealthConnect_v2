@@ -48,8 +48,8 @@ const mockKafka = {
 };
 
 // Setup mocks
-require.cache[require.resolve('../auth-service/src/db')] = { exports: mockDb };
-require.cache[require.resolve('../auth-service/src/kafka')] = { exports: mockKafka };
+require.cache[require.resolve('../src/db')] = { exports: mockDb };
+require.cache[require.resolve('../src/kafka')] = { exports: mockKafka };
 require.cache[require.resolve('nanoid')] = { exports: { nanoid: () => 'test-user-123' } };
 
 // Set environment
@@ -58,8 +58,8 @@ process.env.JWT_SECRET = JWT_SECRET;
 process.env.KAFKA_BROKERS = 'none';
 
 // Load the service
-delete require.cache[require.resolve('../auth-service/src/index')];
-require('../auth-service/src/index');
+delete require.cache[require.resolve('../src/index')];
+require('../src/index');
 
 function makeRequest(method, path, options = {}) {
     return new Promise((resolve, reject) => {

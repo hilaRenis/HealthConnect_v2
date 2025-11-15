@@ -100,15 +100,11 @@ jobs:
         run: |
           node ./node_modules/c8/bin/c8.js --reporter=lcov --reporter=text --report-dir=./coverage node auth-service/test/auth-test.js
 
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@e44258b109568baa0df60ed515909fc6c72cba92
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Upload Auth Coverage
+        uses: actions/upload-artifact@v4
         with:
-          args: >
-            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
-            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
+          name: auth-coverage
+          path: coverage/
 
   auth-service-build:
     runs-on: ubuntu-latest
@@ -344,15 +340,11 @@ jobs:
         run: |
           node ./node_modules/c8/bin/c8.js --reporter=lcov --reporter=text --report-dir=./admin-coverage node admin-service/test/admin-service-test.js
 
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@e44258b109568baa0df60ed515909fc6c72cba92
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Upload Admin Coverage
+        uses: actions/upload-artifact@v4
         with:
-          args: >
-            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
-            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
+          name: admin-coverage
+          path: admin-coverage/
 
   admin-service-build:
     runs-on: ubuntu-latest
@@ -525,6 +517,46 @@ jobs:
         env:
           USE_MOCK: true
           API_URL: http://localhost:8080
+
+  # SonarCloud Analysis - Runs after all tests complete
+  sonarcloud-analysis:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, auth-service-test, admin-service-test]
+    if: |
+      always() && 
+      (needs.auth-service-test.result == 'success' || 
+       needs.admin-service-test.result == 'success')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Auth Coverage
+        uses: actions/download-artifact@v4
+        if: needs.detect-changes.outputs.auth-service == 'true'
+        with:
+          name: auth-coverage
+          path: coverage/
+        continue-on-error: true
+
+      - name: Download Admin Coverage
+        uses: actions/download-artifact@v4
+        if: needs.detect-changes.outputs.admin-service == 'true'
+        with:
+          name: admin-coverage
+          path: admin-coverage/
+        continue-on-error: true
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@e44258b109568baa0df60ed515909fc6c72cba92
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
 
   web-client-build:
     runs-on: ubuntu-latest

@@ -4,29 +4,32 @@ const http = require('http');
 let passed = 0;
 let failed = 0;
 
-// Mock database
+// Mock database - store original query function for reset
+const originalQuery = async function(sql, params) {
+    mockDb.queries.push({ sql, params });
+    const sqlLower = sql.toLowerCase();
+
+    if (sqlLower.includes('insert')) {
+        return mockDb.mockResults['INSERT'] || { rows: [], rowCount: 1 };
+    }
+    if (sqlLower.includes('update')) {
+        return mockDb.mockResults['UPDATE'] || { rows: [], rowCount: 1 };
+    }
+    if (sqlLower.includes('select')) {
+        return mockDb.mockResults['SELECT'] || { rows: [] };
+    }
+
+    return { rows: [], rowCount: 0 };
+};
+
 const mockDb = {
     queries: [],
     mockResults: {},
-    query: async function(sql, params) {
-        mockDb.queries.push({ sql, params });
-        const sqlLower = sql.toLowerCase();
-
-        if (sqlLower.includes('insert')) {
-            return mockDb.mockResults['INSERT'] || { rows: [], rowCount: 1 };
-        }
-        if (sqlLower.includes('update')) {
-            return mockDb.mockResults['UPDATE'] || { rows: [], rowCount: 1 };
-        }
-        if (sqlLower.includes('select')) {
-            return mockDb.mockResults['SELECT'] || { rows: [] };
-        }
-
-        return { rows: [], rowCount: 0 };
-    },
+    query: originalQuery,
     reset() {
         mockDb.queries = [];
         mockDb.mockResults = {};
+        mockDb.query = originalQuery; // Restore original query function
     }
 };
 
@@ -326,20 +329,25 @@ async function runTests() {
     });
 
     await test('GET /patients/:id - admin gets patient', async () => {
-        mockDb.mockResults.SELECT = {
-            rows: [{
-                id: 'pat-1',
-                userid: 'user-1',
-                name: 'John Doe',
-                dob: '1990-01-01',
-                conditions: [],
-                email: 'john@test.com',
-                user_name: 'John',
-                user_role: 'patient',
-                doctor_id: 'doc-1',
-                doctor_name: 'Dr. Smith',
-                doctor_email: 'smith@test.com'
-            }]
+        // Need to mock multiple queries: first for patient, potentially others
+        let callCount = 0;
+        mockDb.query = async function(sql) {
+            callCount++;
+            return {
+                rows: [{
+                    id: 'pat-1',
+                    userid: 'user-1',
+                    name: 'John Doe',
+                    dob: '1990-01-01',
+                    conditions: [],
+                    email: 'john@test.com',
+                    user_name: 'John',
+                    user_role: 'patient',
+                    doctor_id: 'doc-1',
+                    doctor_name: 'Dr. Smith',
+                    doctor_email: 'smith@test.com'
+                }]
+            };
         };
 
         const res = await makeRequest('GET', '/patients/pat-1', {
@@ -352,7 +360,9 @@ async function runTests() {
     });
 
     await test('GET /patients/:id - 404 when not found', async () => {
-        mockDb.mockResults.SELECT = { rows: [] };
+        mockDb.query = async function() {
+            return { rows: [] };
+        };
 
         const res = await makeRequest('GET', '/patients/pat-999', {
             user: { sub: 'admin-1', role: 'admin' }
@@ -362,12 +372,21 @@ async function runTests() {
     });
 
     await test('DELETE /patients/:id - admin deletes patient', async () => {
-        mockDb.mockResults.SELECT = {
-            rows: [{
-                id: 'pat-1',
-                userid: 'user-1',
-                name: 'John'
-            }]
+        let callCount = 0;
+        mockDb.query = async function(sql) {
+            callCount++;
+            // First call checks if patient exists
+            if (callCount === 1) {
+                return {
+                    rows: [{
+                        id: 'pat-1',
+                        userid: 'user-1',
+                        name: 'John'
+                    }]
+                };
+            }
+            // Subsequent calls for deletion
+            return { rows: [], rowCount: 1 };
         };
 
         const res = await makeRequest('DELETE', '/patients/pat-1', {
@@ -378,7 +397,9 @@ async function runTests() {
     });
 
     await test('DELETE /patients/:id - 404 when not found', async () => {
-        mockDb.mockResults.SELECT = { rows: [] };
+        mockDb.query = async function() {
+            return { rows: [] };
+        };
 
         const res = await makeRequest('DELETE', '/patients/pat-999', {
             user: { sub: 'admin-1', role: 'admin' }
@@ -435,7 +456,9 @@ async function runTests() {
     });
 
     await test('POST /patients/:id/assign-doctor - 404 for missing patient', async () => {
-        mockDb.mockResults.SELECT = { rows: [] };
+        mockDb.query = async function() {
+            return { rows: [] };
+        };
 
         const res = await makeRequest('POST', '/patients/pat-999/assign-doctor', {
             user: { sub: 'admin-1', role: 'admin' },
@@ -535,7 +558,9 @@ async function runTests() {
     });
 
     await test('POST /appointments - 404 patient not found', async () => {
-        mockDb.mockResults.SELECT = { rows: [] };
+        mockDb.query = async function() {
+            return { rows: [] };
+        };
 
         const res = await makeRequest('POST', '/appointments', {
             user: { sub: 'admin-1', role: 'admin' },
@@ -551,7 +576,14 @@ async function runTests() {
     });
 
     await test('POST /appointments - 400 invalid times', async () => {
-        mockDb.mockResults.SELECT = { rows: [{ userid: 'user-1' }] };
+        let callCount = 0;
+        mockDb.query = async function() {
+            callCount++;
+            // Patient exists
+            if (callCount === 1) return { rows: [{ userid: 'user-1' }] };
+            // Doctor exists
+            return { rows: [{ id: 'doc-1' }] };
+        };
 
         const res = await makeRequest('POST', '/appointments', {
             user: { sub: 'admin-1', role: 'admin' },
@@ -575,7 +607,14 @@ async function runTests() {
     });
 
     await test('PUT /appointments/:id - admin updates appointment', async () => {
-        mockDb.mockResults.SELECT = { rows: [{ userid: 'user-1' }] };
+        let callCount = 0;
+        mockDb.query = async function() {
+            callCount++;
+            // Patient exists check
+            if (callCount === 1) return { rows: [{ userid: 'user-1' }] };
+            // Doctor exists check (if needed)
+            return { rows: [{ id: 'doc-1' }] };
+        };
 
         const res = await makeRequest('PUT', '/appointments/appt-1', {
             user: { sub: 'admin-1', role: 'admin' },

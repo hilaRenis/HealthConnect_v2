@@ -5,29 +5,32 @@ const http = require('http');
 let passed = 0;
 let failed = 0;
 
-// Mock database
+// Mock database - store original query function for reset
+const originalQuery = async function(sql, params) {
+    mockDb.queries.push({ sql, params });
+    const sqlLower = sql.toLowerCase();
+
+    if (sqlLower.includes('insert')) {
+        return mockDb.mockResults['INSERT'] || { rows: [], rowCount: 1 };
+    }
+    if (sqlLower.includes('update')) {
+        return mockDb.mockResults['UPDATE'] || { rows: [], rowCount: 1 };
+    }
+    if (sqlLower.includes('select')) {
+        return mockDb.mockResults['SELECT'] || { rows: [] };
+    }
+
+    return { rows: [], rowCount: 0 };
+};
+
 const mockDb = {
     queries: [],
     mockResults: {},
-    query: async function(sql, params) {
-        mockDb.queries.push({ sql, params });
-        const sqlLower = sql.toLowerCase();
-
-        if (sqlLower.includes('insert')) {
-            return mockDb.mockResults['INSERT'] || { rows: [], rowCount: 1 };
-        }
-        if (sqlLower.includes('update')) {
-            return mockDb.mockResults['UPDATE'] || { rows: [], rowCount: 1 };
-        }
-        if (sqlLower.includes('select')) {
-            return mockDb.mockResults['SELECT'] || { rows: [] };
-        }
-
-        return { rows: [], rowCount: 0 };
-    },
+    query: originalQuery,
     reset() {
         mockDb.queries = [];
         mockDb.mockResults = {};
+        mockDb.query = originalQuery; // Restore original query function
     }
 };
 
@@ -357,9 +360,14 @@ async function runTests() {
     });
 
     await test('POST /internal/prescriptions/requests/:id/status - updates status', async () => {
-        mockDb.mockResults.UPDATE = {
-            rows: [{ id: 'req-1', patientid: 'pat-1', status: 'approved' }],
-            rowCount: 1
+        mockDb.query = async function(sql) {
+            if (sql.toLowerCase().includes('update')) {
+                return {
+                    rows: [{ id: 'req-1', patientid: 'pat-1', status: 'approved' }],
+                    rowCount: 1
+                };
+            }
+            return { rows: [], rowCount: 0 };
         };
 
         const res = await makeRequest('POST', '/internal/prescriptions/requests/req-1/status', {
@@ -371,7 +379,9 @@ async function runTests() {
     });
 
     await test('POST /internal/prescriptions/requests/:id/status - 404 when not found', async () => {
-        mockDb.mockResults.UPDATE = { rows: [], rowCount: 0 };
+        mockDb.query = async function() {
+            return { rows: [], rowCount: 0 };
+        };
 
         const res = await makeRequest('POST', '/internal/prescriptions/requests/req-999/status', {
             body: { status: 'approved' }

@@ -5,29 +5,32 @@ const http = require('http');
 let passed = 0;
 let failed = 0;
 
-// Mock database
+// Mock database - store original query function for reset
+const originalQuery = async function(sql, params) {
+    mockDb.queries.push({ sql, params });
+    const sqlLower = sql.toLowerCase();
+
+    if (sqlLower.includes('insert')) {
+        return mockDb.mockResults['INSERT'] || { rows: [], rowCount: 1 };
+    }
+    if (sqlLower.includes('update')) {
+        return mockDb.mockResults['UPDATE'] || { rows: [], rowCount: 1 };
+    }
+    if (sqlLower.includes('select')) {
+        return mockDb.mockResults['SELECT'] || { rows: [] };
+    }
+
+    return { rows: [], rowCount: 0 };
+};
+
 const mockDb = {
     queries: [],
     mockResults: {},
-    query: async function(sql, params) {
-        mockDb.queries.push({ sql, params });
-        const sqlLower = sql.toLowerCase();
-
-        if (sqlLower.includes('insert')) {
-            return mockDb.mockResults['INSERT'] || { rows: [], rowCount: 1 };
-        }
-        if (sqlLower.includes('update')) {
-            return mockDb.mockResults['UPDATE'] || { rows: [], rowCount: 1 };
-        }
-        if (sqlLower.includes('select')) {
-            return mockDb.mockResults['SELECT'] || { rows: [] };
-        }
-
-        return { rows: [], rowCount: 0 };
-    },
+    query: originalQuery,
     reset() {
         mockDb.queries = [];
         mockDb.mockResults = {};
+        mockDb.query = originalQuery; // Restore original query function
     }
 };
 
@@ -254,15 +257,17 @@ async function runTests() {
 
     // Get patient by ID
     await test('GET /patients/:id - doctor gets patient', async () => {
-        mockDb.mockResults.SELECT = {
-            rows: [{
-                id: 'pat-1',
-                userid: 'user-1',
-                name: 'John Doe',
-                email: 'john@test.com',
-                dob: '1990-01-01',
-                conditions: []
-            }]
+        mockDb.query = async function() {
+            return {
+                rows: [{
+                    id: 'pat-1',
+                    userid: 'user-1',
+                    name: 'John Doe',
+                    email: 'john@test.com',
+                    dob: '1990-01-01',
+                    conditions: []
+                }]
+            };
         };
 
         const res = await makeRequest('GET', '/patients/pat-1', {
@@ -274,7 +279,9 @@ async function runTests() {
     });
 
     await test('GET /patients/:id - 404 when not found', async () => {
-        mockDb.mockResults.SELECT = { rows: [] };
+        mockDb.query = async function() {
+            return { rows: [] };
+        };
 
         const res = await makeRequest('GET', '/patients/pat-999', {
             user: { sub: 'doctor-1', role: 'doctor' }

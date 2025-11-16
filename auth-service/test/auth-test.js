@@ -1,4 +1,4 @@
-//Trigger test1
+//Trigger test
 const assert = require('assert');
 const http = require('http');
 const jwt = require('jsonwebtoken');
@@ -8,29 +8,32 @@ let failed = 0;
 
 const JWT_SECRET = process.env.JWT_SECRET || 'devsecret';
 
-// Mock database
+// Mock database - store original query function for reset
+const originalQuery = async function(sql, params) {
+    mockDb.queries.push({ sql, params });
+    const sqlLower = sql.toLowerCase();
+
+    if (sqlLower.includes('insert')) {
+        return mockDb.mockResults['INSERT'] || { rows: [], rowCount: 1 };
+    }
+    if (sqlLower.includes('update')) {
+        return mockDb.mockResults['UPDATE'] || { rows: [], rowCount: 1 };
+    }
+    if (sqlLower.includes('select')) {
+        return mockDb.mockResults['SELECT'] || { rows: [] };
+    }
+
+    return { rows: [], rowCount: 0 };
+};
+
 const mockDb = {
     queries: [],
     mockResults: {},
-    query: async function(sql, params) {
-        mockDb.queries.push({ sql, params });
-        const sqlLower = sql.toLowerCase();
-
-        if (sqlLower.includes('insert')) {
-            return mockDb.mockResults['INSERT'] || { rows: [], rowCount: 1 };
-        }
-        if (sqlLower.includes('update')) {
-            return mockDb.mockResults['UPDATE'] || { rows: [], rowCount: 1 };
-        }
-        if (sqlLower.includes('select')) {
-            return mockDb.mockResults['SELECT'] || { rows: [] };
-        }
-
-        return { rows: [], rowCount: 0 };
-    },
+    query: originalQuery,
     reset() {
         mockDb.queries = [];
         mockDb.mockResults = {};
+        mockDb.query = originalQuery; // Restore original query function
     }
 };
 
@@ -168,11 +171,24 @@ async function runTests() {
 
     // Update user
     await test('PUT /auth/users/:id - admin updates user', async () => {
-        mockDb.mockResults.SELECT = {
-            rows: [{ id: 'user-1', role: 'doctor', name: 'Dr. Smith', email: 'smith@test.com' }]
-        };
-        mockDb.mockResults.UPDATE = {
-            rows: [{ id: 'user-1', role: 'doctor', name: 'Dr. John Smith', email: 'john.smith@test.com' }]
+        let callCount = 0;
+        mockDb.query = async function(sql) {
+            callCount++;
+            const sqlLower = sql.toLowerCase();
+
+            // First SELECT - get existing user
+            if (callCount === 1) {
+                return { rows: [{ id: 'user-1', role: 'doctor', name: 'Dr. Smith', email: 'smith@test.com' }] };
+            }
+            // Second SELECT - check if new email exists (should be empty for no conflict)
+            if (callCount === 2) {
+                return { rows: [] };
+            }
+            // UPDATE
+            if (sqlLower.includes('update')) {
+                return { rows: [{ id: 'user-1', role: 'doctor', name: 'Dr. John Smith', email: 'john.smith@test.com' }], rowCount: 1 };
+            }
+            return { rows: [], rowCount: 0 };
         };
 
         const res = await makeRequest('PUT', '/auth/users/user-1', {
@@ -250,7 +266,8 @@ async function runTests() {
     // Delete user
     await test('DELETE /auth/users/:id - admin deletes user', async () => {
         mockDb.mockResults.UPDATE = {
-            rows: [{ id: 'user-1', role: 'doctor' }]
+            rows: [{ id: 'user-1', role: 'doctor' }],
+            rowCount: 1
         };
 
         const res = await makeRequest('DELETE', '/auth/users/user-1', {
@@ -261,7 +278,7 @@ async function runTests() {
     });
 
     await test('DELETE /auth/users/:id - 404 when not found', async () => {
-        mockDb.mockResults.UPDATE = { rows: [] };
+        mockDb.mockResults.UPDATE = { rows: [], rowCount: 0 };
 
         const res = await makeRequest('DELETE', '/auth/users/user-999', {
             user: { sub: 'admin-1', role: 'admin' }
@@ -280,7 +297,14 @@ async function runTests() {
 
     // Register patient
     await test('POST /auth/register-patient - doctor registers patient', async () => {
-        mockDb.mockResults.SELECT = { rows: [] };
+        mockDb.query = async function(sql) {
+            // Check if email exists - should be empty
+            if (sql.toLowerCase().includes('select')) {
+                return { rows: [] };
+            }
+            // INSERT
+            return { rows: [], rowCount: 1 };
+        };
 
         const res = await makeRequest('POST', '/auth/register-patient', {
             user: { sub: 'doctor-1', role: 'doctor' },
@@ -292,7 +316,14 @@ async function runTests() {
     });
 
     await test('POST /auth/register-patient - admin registers patient', async () => {
-        mockDb.mockResults.SELECT = { rows: [] };
+        mockDb.query = async function(sql) {
+            // Check if email exists - should be empty
+            if (sql.toLowerCase().includes('select')) {
+                return { rows: [] };
+            }
+            // INSERT
+            return { rows: [], rowCount: 1 };
+        };
 
         const res = await makeRequest('POST', '/auth/register-patient', {
             user: { sub: 'admin-1', role: 'admin' },
@@ -335,14 +366,17 @@ async function runTests() {
 
     // Login
     await test('POST /auth/login - successful login', async () => {
-        mockDb.mockResults.SELECT = {
-            rows: [{
-                id: 'user-1',
-                role: 'patient',
-                name: 'John Doe',
-                email: 'john@test.com',
-                passwordhash: 'pass123'
-            }]
+        mockDb.query = async function(sql) {
+            // SELECT user by email
+            return {
+                rows: [{
+                    id: 'user-1',
+                    role: 'patient',
+                    name: 'John Doe',
+                    email: 'john@test.com',
+                    passwordhash: 'pass123'
+                }]
+            };
         };
 
         const res = await makeRequest('POST', '/auth/login', {
@@ -358,7 +392,9 @@ async function runTests() {
     });
 
     await test('POST /auth/login - 401 for invalid credentials', async () => {
-        mockDb.mockResults.SELECT = { rows: [] };
+        mockDb.query = async function() {
+            return { rows: [] };
+        };
 
         const res = await makeRequest('POST', '/auth/login', {
             body: { email: 'john@test.com', password: 'wrongpass' }
@@ -409,7 +445,15 @@ async function runTests() {
     // authGuard with Bearer token (not x-user)
     await test('authGuard - validates Bearer token when no x-user', async () => {
         const token = jwt.sign({ sub: 'admin-1', role: 'admin' }, JWT_SECRET, { expiresIn: '2h' });
-        mockDb.mockResults.SELECT = { rows: [] };
+
+        mockDb.query = async function(sql) {
+            // Check if email exists - should be empty
+            if (sql.toLowerCase().includes('select')) {
+                return { rows: [] };
+            }
+            // INSERT
+            return { rows: [], rowCount: 1 };
+        };
 
         const res = await makeRequest('POST', '/auth/register-doctor', {
             headers: { Authorization: `Bearer ${token}` },

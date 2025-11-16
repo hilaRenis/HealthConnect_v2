@@ -1,4 +1,3 @@
-//Trigger test1
 const assert = require('assert');
 const http = require('http');
 

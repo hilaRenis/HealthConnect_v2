@@ -1,40 +1,43 @@
-//Trigger test
+
 const assert = require('assert');
 const http = require('http');
 
 let passed = 0;
 let failed = 0;
 
-// Mock database
+// Mock database - store original query function for reset
+const originalQuery = async function(sql, params) {
+    mockDb.queries.push({ sql, params });
+    const sqlLower = sql.toLowerCase();
+
+    if (sqlLower.includes('information_schema')) {
+        return { rows: [{ column_name: 'starttime' }, { column_name: 'endtime' }] };
+    }
+
+    if (sqlLower.includes('insert')) {
+        return mockDb.mockResults['INSERT'] || { rows: [], rowCount: 1 };
+    }
+    if (sqlLower.includes('update')) {
+        return mockDb.mockResults['UPDATE'] || { rows: [], rowCount: 1 };
+    }
+    if (sqlLower.includes('select 1') || sqlLower.includes('overlaps')) {
+        return mockDb.mockResults['CONFLICT'] || { rows: [] };
+    }
+    if (sqlLower.includes('select')) {
+        return mockDb.mockResults['SELECT'] || { rows: [] };
+    }
+
+    return { rows: [], rowCount: 0 };
+};
+
 const mockDb = {
     queries: [],
     mockResults: {},
-    query: async function(sql, params) {
-        mockDb.queries.push({ sql, params });
-        const sqlLower = sql.toLowerCase();
-
-        if (sqlLower.includes('information_schema')) {
-            return { rows: [{ column_name: 'starttime' }, { column_name: 'endtime' }] };
-        }
-
-        if (sqlLower.includes('insert')) {
-            return mockDb.mockResults['INSERT'] || { rows: [], rowCount: 1 };
-        }
-        if (sqlLower.includes('update')) {
-            return mockDb.mockResults['UPDATE'] || { rows: [], rowCount: 1 };
-        }
-        if (sqlLower.includes('select 1') || sqlLower.includes('overlaps')) {
-            return mockDb.mockResults['CONFLICT'] || { rows: [] };
-        }
-        if (sqlLower.includes('select')) {
-            return mockDb.mockResults['SELECT'] || { rows: [] };
-        }
-
-        return { rows: [], rowCount: 0 };
-    },
+    query: originalQuery,
     reset() {
         mockDb.queries = [];
         mockDb.mockResults = {};
+        mockDb.query = originalQuery; // Restore original query function
     }
 };
 
@@ -166,9 +169,13 @@ async function runTests() {
         let callCount = 0;
         mockDb.query = async function(sql) {
             callCount++;
-            if (callCount === 1) return { rows: [{ column_name: 'starttime' }] };
+            // Column check
+            if (callCount === 1) return { rows: [] };
+            // Conflict check - no conflicts
             if (callCount === 2) return { rows: [] };
+            // Insert
             if (callCount === 3) return { rows: [], rowCount: 1 };
+            // Select created
             return { rows: [{ id: 'test-appt-123', patientuserid: 'patient-1', doctoruserid: 'doctor-1', status: 'pending' }] };
         };
 
@@ -189,9 +196,13 @@ async function runTests() {
         let callCount = 0;
         mockDb.query = async function(sql) {
             callCount++;
-            if (callCount === 1) return { rows: [{ column_name: 'starttime' }] };
+            // Column check
+            if (callCount === 1) return { rows: [] };
+            // Conflict check - no conflicts
             if (callCount === 2) return { rows: [] };
+            // Insert
             if (callCount === 3) return { rows: [], rowCount: 1 };
+            // Select created
             return { rows: [{ id: 'test-appt-123', patientuserid: 'patient-1', doctoruserid: 'doctor-1', status: 'pending' }] };
         };
 
@@ -260,7 +271,9 @@ async function runTests() {
         let callCount = 0;
         mockDb.query = async function(sql) {
             callCount++;
+            // Column check - no time columns
             if (callCount === 1) return { rows: [] };
+            // Conflict check - has conflict
             return { rows: [{ id: 'existing' }] };
         };
 
@@ -329,13 +342,15 @@ async function runTests() {
 
     // Get appointment by ID
     await test('GET /:id - patient gets own appointment', async () => {
-        mockDb.mockResults.SELECT = {
-            rows: [{
-                id: 'appt-1',
-                patientuserid: 'patient-1',
-                doctoruserid: 'doctor-1',
-                status: 'pending'
-            }]
+        mockDb.query = async function() {
+            return {
+                rows: [{
+                    id: 'appt-1',
+                    patientuserid: 'patient-1',
+                    doctoruserid: 'doctor-1',
+                    status: 'pending'
+                }]
+            };
         };
 
         const res = await makeRequest('GET', '/appt-1', {
@@ -346,13 +361,15 @@ async function runTests() {
     });
 
     await test('GET /:id - doctor gets appointment', async () => {
-        mockDb.mockResults.SELECT = {
-            rows: [{
-                id: 'appt-1',
-                patientuserid: 'patient-1',
-                doctoruserid: 'doctor-1',
-                status: 'pending'
-            }]
+        mockDb.query = async function() {
+            return {
+                rows: [{
+                    id: 'appt-1',
+                    patientuserid: 'patient-1',
+                    doctoruserid: 'doctor-1',
+                    status: 'pending'
+                }]
+            };
         };
 
         const res = await makeRequest('GET', '/appt-1', {
@@ -363,8 +380,10 @@ async function runTests() {
     });
 
     await test('GET /:id - admin gets any appointment', async () => {
-        mockDb.mockResults.SELECT = {
-            rows: [{ id: 'appt-1', patientuserid: 'patient-1', doctoruserid: 'doctor-1' }]
+        mockDb.query = async function() {
+            return {
+                rows: [{ id: 'appt-1', patientuserid: 'patient-1', doctoruserid: 'doctor-1' }]
+            };
         };
 
         const res = await makeRequest('GET', '/appt-1', {
@@ -375,7 +394,9 @@ async function runTests() {
     });
 
     await test('GET /:id - 404 when not found', async () => {
-        mockDb.mockResults.SELECT = { rows: [] };
+        mockDb.query = async function() {
+            return { rows: [] };
+        };
 
         const res = await makeRequest('GET', '/appt-999', {
             user: { sub: 'admin-1', role: 'admin' }
@@ -385,8 +406,10 @@ async function runTests() {
     });
 
     await test('GET /:id - 403 for unauthorized user', async () => {
-        mockDb.mockResults.SELECT = {
-            rows: [{ id: 'appt-1', patientuserid: 'patient-1', doctoruserid: 'doctor-1' }]
+        mockDb.query = async function() {
+            return {
+                rows: [{ id: 'appt-1', patientuserid: 'patient-1', doctoruserid: 'doctor-1' }]
+            };
         };
 
         const res = await makeRequest('GET', '/appt-1', {
@@ -401,6 +424,7 @@ async function runTests() {
         let callCount = 0;
         mockDb.query = async function(sql) {
             callCount++;
+            // Get existing appointment
             if (callCount === 1) {
                 return {
                     rows: [{
@@ -413,9 +437,13 @@ async function runTests() {
                     }]
                 };
             }
+            // Column check
             if (callCount === 2) return { rows: [] };
+            // Conflict check
             if (callCount === 3) return { rows: [] };
+            // Update
             if (callCount === 4) return { rows: [], rowCount: 1 };
+            // Select updated
             return { rows: [{ id: 'appt-1', status: 'confirmed' }] };
         };
 
@@ -434,7 +462,9 @@ async function runTests() {
     });
 
     await test('PUT /:id - 404 when not found', async () => {
-        mockDb.mockResults.SELECT = { rows: [] };
+        mockDb.query = async function() {
+            return { rows: [] };
+        };
 
         const res = await makeRequest('PUT', '/appt-999', {
             user: { sub: 'admin-1', role: 'admin' },
@@ -445,8 +475,10 @@ async function runTests() {
     });
 
     await test('PUT /:id - fails without required fields', async () => {
-        mockDb.mockResults.SELECT = {
-            rows: [{ id: 'appt-1', patientuserid: 'patient-1', doctoruserid: 'doctor-1' }]
+        mockDb.query = async function() {
+            return {
+                rows: [{ id: 'appt-1', patientuserid: 'patient-1', doctoruserid: 'doctor-1' }]
+            };
         };
 
         const res = await makeRequest('PUT', '/appt-1', {
@@ -468,9 +500,15 @@ async function runTests() {
 
     // Delete appointment
     await test('DELETE /:id - admin deletes appointment', async () => {
-        mockDb.mockResults.UPDATE = {
-            rows: [{ id: 'appt-1', patientuserid: 'patient-1', doctoruserid: 'doctor-1' }],
-            rowCount: 1
+        mockDb.query = async function(sql) {
+            const sqlLower = sql.toLowerCase();
+            if (sqlLower.includes('update')) {
+                return {
+                    rows: [{ id: 'appt-1', patientuserid: 'patient-1', doctoruserid: 'doctor-1' }],
+                    rowCount: 1
+                };
+            }
+            return { rows: [], rowCount: 0 };
         };
 
         const res = await makeRequest('DELETE', '/appt-1', {
@@ -481,7 +519,9 @@ async function runTests() {
     });
 
     await test('DELETE /:id - 404 when not found', async () => {
-        mockDb.mockResults.UPDATE = { rows: [], rowCount: 0 };
+        mockDb.query = async function() {
+            return { rows: [], rowCount: 0 };
+        };
 
         const res = await makeRequest('DELETE', '/appt-999', {
             user: { sub: 'admin-1', role: 'admin' }
@@ -500,9 +540,15 @@ async function runTests() {
 
     // Doctor actions
     await test('POST /:id/approve - doctor approves', async () => {
-        mockDb.mockResults.UPDATE = {
-            rows: [{ id: 'appt-1', status: 'approved' }],
-            rowCount: 1
+        mockDb.query = async function(sql) {
+            const sqlLower = sql.toLowerCase();
+            if (sqlLower.includes('update')) {
+                return {
+                    rows: [{ id: 'appt-1', status: 'approved' }],
+                    rowCount: 1
+                };
+            }
+            return { rows: [], rowCount: 0 };
         };
 
         const res = await makeRequest('POST', '/appt-1/approve', {
@@ -514,7 +560,9 @@ async function runTests() {
     });
 
     await test('POST /:id/approve - 404 when not found', async () => {
-        mockDb.mockResults.UPDATE = { rows: [], rowCount: 0 };
+        mockDb.query = async function() {
+            return { rows: [], rowCount: 0 };
+        };
 
         const res = await makeRequest('POST', '/appt-999/approve', {
             user: { sub: 'doctor-1', role: 'doctor' }
@@ -532,9 +580,15 @@ async function runTests() {
     });
 
     await test('POST /:id/deny - doctor denies', async () => {
-        mockDb.mockResults.UPDATE = {
-            rows: [{ id: 'appt-1', status: 'denied' }],
-            rowCount: 1
+        mockDb.query = async function(sql) {
+            const sqlLower = sql.toLowerCase();
+            if (sqlLower.includes('update')) {
+                return {
+                    rows: [{ id: 'appt-1', status: 'denied' }],
+                    rowCount: 1
+                };
+            }
+            return { rows: [], rowCount: 0 };
         };
 
         const res = await makeRequest('POST', '/appt-1/deny', {
@@ -555,9 +609,15 @@ async function runTests() {
 
     // Cancel appointment
     await test('POST /:id/cancel - patient cancels', async () => {
-        mockDb.mockResults.UPDATE = {
-            rows: [{ id: 'appt-1', status: 'cancelled' }],
-            rowCount: 1
+        mockDb.query = async function(sql) {
+            const sqlLower = sql.toLowerCase();
+            if (sqlLower.includes('update')) {
+                return {
+                    rows: [{ id: 'appt-1', status: 'cancelled' }],
+                    rowCount: 1
+                };
+            }
+            return { rows: [], rowCount: 0 };
         };
 
         const res = await makeRequest('POST', '/appt-1/cancel', {
@@ -569,9 +629,15 @@ async function runTests() {
     });
 
     await test('POST /:id/cancel - doctor cancels', async () => {
-        mockDb.mockResults.UPDATE = {
-            rows: [{ id: 'appt-1', status: 'cancelled' }],
-            rowCount: 1
+        mockDb.query = async function(sql) {
+            const sqlLower = sql.toLowerCase();
+            if (sqlLower.includes('update')) {
+                return {
+                    rows: [{ id: 'appt-1', status: 'cancelled' }],
+                    rowCount: 1
+                };
+            }
+            return { rows: [], rowCount: 0 };
         };
 
         const res = await makeRequest('POST', '/appt-1/cancel', {
@@ -582,7 +648,9 @@ async function runTests() {
     });
 
     await test('POST /:id/cancel - 404 for unauthorized', async () => {
-        mockDb.mockResults.UPDATE = { rows: [], rowCount: 0 };
+        mockDb.query = async function() {
+            return { rows: [], rowCount: 0 };
+        };
 
         const res = await makeRequest('POST', '/appt-1/cancel', {
             user: { sub: 'other-user', role: 'patient' }

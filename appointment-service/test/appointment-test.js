@@ -173,9 +173,7 @@ async function runTests() {
             if (callCount === 1) return { rows: [] };
             // Conflict check - no conflicts
             if (callCount === 2) return { rows: [] };
-            // Insert
-            if (callCount === 3) return { rows: [], rowCount: 1 };
-            // Select created - return complete appointment data
+            // Insert with RETURNING - returns the complete inserted appointment
             return {
                 rows: [{
                     id: 'test-appt-123',
@@ -186,7 +184,8 @@ async function runTests() {
                     status: 'pending',
                     starttime: null,
                     endtime: null
-                }]
+                }],
+                rowCount: 1
             };
         };
 
@@ -211,9 +210,7 @@ async function runTests() {
             if (callCount === 1) return { rows: [] };
             // Conflict check - no conflicts
             if (callCount === 2) return { rows: [] };
-            // Insert
-            if (callCount === 3) return { rows: [], rowCount: 1 };
-            // Select created - return complete appointment data
+            // Insert with RETURNING - returns the complete inserted appointment
             return {
                 rows: [{
                     id: 'test-appt-123',
@@ -224,7 +221,8 @@ async function runTests() {
                     status: 'pending',
                     starttime: null,
                     endtime: null
-                }]
+                }],
+                rowCount: 1
             };
         };
 
@@ -297,8 +295,20 @@ async function runTests() {
             if (callCount === 1) return { rows: [] };
             // Conflict check - has conflict, should stop here and return 409
             if (callCount === 2) return { rows: [{ id: 'existing' }] };
-            // Should not reach here, but just in case
-            return { rows: [], rowCount: 0 };
+            // Should not reach here, but if INSERT is attempted, return complete data to avoid error
+            return {
+                rows: [{
+                    id: 'should-not-exist',
+                    patientuserid: 'patient-1',
+                    doctoruserid: 'doctor-1',
+                    date: '2025-12-01',
+                    slot: '10:00',
+                    status: 'pending',
+                    starttime: null,
+                    endtime: null
+                }],
+                rowCount: 0 // Indicate no rows should be affected if this is called
+            };
         };
 
         const res = await makeRequest('POST', '/', {
@@ -448,8 +458,10 @@ async function runTests() {
         let callCount = 0;
         mockDb.query = async function(sql) {
             callCount++;
-            // Get existing appointment
-            if (callCount === 1) {
+            const sqlLower = sql.toLowerCase();
+
+            // Get existing appointment (SELECT ... WHERE id = ...)
+            if (sqlLower.includes('select') && sqlLower.includes('from appointments') && callCount === 1) {
                 return {
                     rows: [{
                         id: 'appt-1',
@@ -463,13 +475,31 @@ async function runTests() {
                     }]
                 };
             }
-            // Column check
-            if (callCount === 2) return { rows: [] };
-            // Conflict check
-            if (callCount === 3) return { rows: [] };
-            // Update
-            if (callCount === 4) return { rows: [], rowCount: 1 };
-            // Select updated - return complete appointment data
+            // Column check (information_schema)
+            if (sqlLower.includes('information_schema') || callCount === 2) {
+                return { rows: [] };
+            }
+            // Conflict check (SELECT 1 or overlaps check)
+            if ((sqlLower.includes('select 1') || sqlLower.includes('overlaps')) && callCount === 3) {
+                return { rows: [] };
+            }
+            // Update with RETURNING
+            if (sqlLower.includes('update')) {
+                return {
+                    rows: [{
+                        id: 'appt-1',
+                        patientuserid: 'patient-1',
+                        doctoruserid: 'doctor-1',
+                        date: '2025-12-01',
+                        slot: '10:00',
+                        status: 'confirmed',
+                        starttime: '2025-12-01T10:00:00Z',
+                        endtime: '2025-12-01T11:00:00Z'
+                    }],
+                    rowCount: 1
+                };
+            }
+            // Default - return complete data just in case
             return {
                 rows: [{
                     id: 'appt-1',

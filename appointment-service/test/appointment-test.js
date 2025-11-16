@@ -175,8 +175,19 @@ async function runTests() {
             if (callCount === 2) return { rows: [] };
             // Insert
             if (callCount === 3) return { rows: [], rowCount: 1 };
-            // Select created
-            return { rows: [{ id: 'test-appt-123', patientuserid: 'patient-1', doctoruserid: 'doctor-1', status: 'pending' }] };
+            // Select created - return complete appointment data
+            return {
+                rows: [{
+                    id: 'test-appt-123',
+                    patientuserid: 'patient-1',
+                    doctoruserid: 'doctor-1',
+                    date: '2025-12-01',
+                    slot: '10:00',
+                    status: 'pending',
+                    starttime: null,
+                    endtime: null
+                }]
+            };
         };
 
         const res = await makeRequest('POST', '/', {
@@ -202,8 +213,19 @@ async function runTests() {
             if (callCount === 2) return { rows: [] };
             // Insert
             if (callCount === 3) return { rows: [], rowCount: 1 };
-            // Select created
-            return { rows: [{ id: 'test-appt-123', patientuserid: 'patient-1', doctoruserid: 'doctor-1', status: 'pending' }] };
+            // Select created - return complete appointment data
+            return {
+                rows: [{
+                    id: 'test-appt-123',
+                    patientuserid: 'patient-1',
+                    doctoruserid: 'doctor-1',
+                    date: '2025-12-01',
+                    slot: '10:00',
+                    status: 'pending',
+                    starttime: null,
+                    endtime: null
+                }]
+            };
         };
 
         const res = await makeRequest('POST', '/', {
@@ -273,8 +295,10 @@ async function runTests() {
             callCount++;
             // Column check - no time columns
             if (callCount === 1) return { rows: [] };
-            // Conflict check - has conflict
-            return { rows: [{ id: 'existing' }] };
+            // Conflict check - has conflict, should stop here and return 409
+            if (callCount === 2) return { rows: [{ id: 'existing' }] };
+            // Should not reach here, but just in case
+            return { rows: [], rowCount: 0 };
         };
 
         const res = await makeRequest('POST', '/', {
@@ -433,7 +457,9 @@ async function runTests() {
                         doctoruserid: 'doctor-1',
                         date: '2025-12-01',
                         slot: '10:00',
-                        status: 'pending'
+                        status: 'pending',
+                        starttime: null,
+                        endtime: null
                     }]
                 };
             }
@@ -443,8 +469,19 @@ async function runTests() {
             if (callCount === 3) return { rows: [] };
             // Update
             if (callCount === 4) return { rows: [], rowCount: 1 };
-            // Select updated
-            return { rows: [{ id: 'appt-1', status: 'confirmed' }] };
+            // Select updated - return complete appointment data
+            return {
+                rows: [{
+                    id: 'appt-1',
+                    patientuserid: 'patient-1',
+                    doctoruserid: 'doctor-1',
+                    date: '2025-12-01',
+                    slot: '10:00',
+                    status: 'confirmed',
+                    starttime: '2025-12-01T10:00:00Z',
+                    endtime: '2025-12-01T11:00:00Z'
+                }]
+            };
         };
 
         const res = await makeRequest('PUT', '/appt-1', {

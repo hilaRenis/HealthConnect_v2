@@ -295,20 +295,8 @@ async function runTests() {
             if (callCount === 1) return { rows: [] };
             // Conflict check - has conflict, should stop here and return 409
             if (callCount === 2) return { rows: [{ id: 'existing' }] };
-            // Should not reach here, but if INSERT is attempted, return complete data to avoid error
-            return {
-                rows: [{
-                    id: 'should-not-exist',
-                    patientuserid: 'patient-1',
-                    doctoruserid: 'doctor-1',
-                    date: '2025-12-01',
-                    slot: '10:00',
-                    status: 'pending',
-                    starttime: null,
-                    endtime: null
-                }],
-                rowCount: 0 // Indicate no rows should be affected if this is called
-            };
+            // If INSERT is attempted after conflict, return empty to ensure it fails
+            return { rows: [], rowCount: 0 };
         };
 
         const res = await makeRequest('POST', '/', {

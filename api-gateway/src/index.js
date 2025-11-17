@@ -1,6 +1,7 @@
 const express = require('express');
 const {createProxyMiddleware} = require('http-proxy-middleware');
 const jwt = require('jsonwebtoken');
+const { register, metricsMiddleware } = require('./metrics');
 
 const app = express();
 
@@ -32,7 +33,14 @@ function authGuard(req, res, next) {
     }
 }
 
+app.use(metricsMiddleware('api-gateway'));
+
 app.get('/health', (req, res) => res.json({gateway: true, ok: true}));
+app.get('/metrics', async (req, res) => {
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+});
+
 app.use(authGuard);
 
 // Optional coarse role guard example

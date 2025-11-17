@@ -1,0 +1,52 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'healthconnect-monitor'
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:8080']
+        labels:
+          service: 'api-gateway'
+
+  - job_name: 'auth-service'
+    static_configs:
+      - targets: ['auth-service:3001']
+        labels:
+          service: 'auth-service'
+
+  - job_name: 'patient-service'
+    static_configs:
+      - targets: ['patient-service:3002']
+        labels:
+          service: 'patient-service'
+
+  - job_name: 'doctor-service'
+    static_configs:
+      - targets: ['doctor-service:3003']
+        labels:
+          service: 'doctor-service'
+
+  - job_name: 'appointment-service'
+    static_configs:
+      - targets: ['appointment-service:3004']
+        labels:
+          service: 'appointment-service'
+
+  - job_name: 'pharmacy-service'
+    static_configs:
+      - targets: ['pharmacy-service:3005']
+        labels:
+          service: 'pharmacy-service'
+
+  - job_name: 'admin-service'
+    static_configs:
+      - targets: ['admin-service:3006']
+        labels:
+          service: 'admin-service'

@@ -1,9 +1,13 @@
 // src/http.js
 const express = require('express');
+const { register, metricsMiddleware } = require('./metrics');
 
 function createApp({ name, routes, port }) {
   const app = express();
   app.use(express.json());
+
+  // Metrics middleware
+  app.use(metricsMiddleware(name));
 
   // Parse forwarded user from gateway (if present)
   app.use((req, res, next) => {
@@ -16,6 +20,12 @@ function createApp({ name, routes, port }) {
 
   // Health check
   app.get('/health', (req, res) => res.json({ service: name, ok: true }));
+
+  // Metrics endpoint
+  app.get('/metrics', async (req, res) => {
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  });
 
   // Routes injector
   routes(app);

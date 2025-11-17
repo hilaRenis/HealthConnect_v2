@@ -93,7 +93,7 @@ services:
   web-client:
     build: ./web-client
     ports:
-      - "3000:80"
+      - "3002:80"
     depends_on:
       - api-gateway
 
@@ -198,6 +198,43 @@ services:
       - admin-db
       - kafka
 
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    depends_on:
+      - api-gateway
+      - auth-service
+      - patient-service
+      - doctor-service
+      - appointment-service
+      - pharmacy-service
+      - admin-service
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+
 volumes:
   auth_db_data:
   patient_db_data:
@@ -207,3 +244,5 @@ volumes:
   zookeeper_data:
   zookeeper_log:
   kafka_data:
+  prometheus_data:
+  grafana_data:

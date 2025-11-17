@@ -16,14 +16,14 @@ services:
       - WDS_SOCKET_PORT=0
 
   api-gateway:
-    command: npm run dev
+    command: node src/index.js
     volumes:
       - ./api-gateway/src:/app/src
     environment:
       - CHOKIDAR_USEPOLLING=true
 
   auth-service:
-    command: npm run dev
+    command: node src/index.js
     volumes:
       - ./auth-service/src:/app/src
     environment:
@@ -51,7 +51,7 @@ services:
       - CHOKIDAR_USEPOLLING=true
 
   admin-service:
-    command: npm run dev
+    command: node src/index.js
     volumes:
       - ./admin-service/src:/app/src
     environment:

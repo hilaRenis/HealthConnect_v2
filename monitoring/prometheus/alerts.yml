@@ -1,0 +1,200 @@
+groups:
+  - name: healthconnect_critical
+    interval: 30s
+    rules:
+      # Service Down Alert
+      - alert: ServiceDown
+        expr: up{job=~".*-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "{{ $labels.job }} has been down for more than 1 minute."
+
+      # High Error Rate
+      - alert: HighErrorRate
+        expr: |
+          (sum(rate(http_requests_total{status_code=~"5.."}[5m])) by (service)
+          / sum(rate(http_requests_total[5m])) by (service)) * 100 > 5
+        for: 2m
+        labels:
+          severity: critical
+          category: errors
+        annotations:
+          summary: "High error rate on {{ $labels.service }}"
+          description: "{{ $labels.service }} has error rate of {{ $value }}% (threshold: 5%)"
+
+      # Very High Error Rate
+      - alert: VeryHighErrorRate
+        expr: |
+          (sum(rate(http_requests_total{status_code=~"5.."}[5m])) by (service)
+          / sum(rate(http_requests_total[5m])) by (service)) * 100 > 10
+        for: 1m
+        labels:
+          severity: critical
+          category: errors
+        annotations:
+          summary: "CRITICAL: Very high error rate on {{ $labels.service }}"
+          description: "{{ $labels.service }} has error rate of {{ $value }}% (threshold: 10%)"
+
+      # Slow Response Time
+      - alert: SlowResponseTime
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          category: performance
+        annotations:
+          summary: "Slow response time on {{ $labels.service }}"
+          description: "{{ $labels.service }} 95th percentile response time is {{ $value }}s (threshold: 1s)"
+
+      # Very Slow Response Time
+      - alert: VerySlowResponseTime
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)
+          ) > 3
+        for: 2m
+        labels:
+          severity: critical
+          category: performance
+        annotations:
+          summary: "CRITICAL: Very slow response time on {{ $labels.service }}"
+          description: "{{ $labels.service }} 95th percentile response time is {{ $value }}s (threshold: 3s)"
+
+  - name: healthconnect_warning
+    interval: 1m
+    rules:
+      # High Memory Usage
+      - alert: HighMemoryUsage
+        expr: |
+          (process_resident_memory_bytes{job=~".*-service"} / 1024 / 1024) > 500
+        for: 5m
+        labels:
+          severity: warning
+          category: resources
+        annotations:
+          summary: "High memory usage on {{ $labels.service }}"
+          description: "{{ $labels.service }} is using {{ $value }}MB of memory (threshold: 500MB)"
+
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: |
+          rate(process_cpu_seconds_total{job=~".*-service"}[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          category: resources
+        annotations:
+          summary: "High CPU usage on {{ $labels.service }}"
+          description: "{{ $labels.service }} CPU usage is {{ $value }}% (threshold: 80%)"
+
+      # Authentication Failures
+      - alert: HighAuthenticationFailures
+        expr: |
+          sum(rate(http_requests_total{service="auth-service", status_code=~"401|403"}[5m])) > 5
+        for: 3m
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "High authentication failure rate"
+          description: "Authentication service has {{ $value }} failures/sec (threshold: 5/sec)"
+
+      # API Gateway High Traffic
+      - alert: APIGatewayHighTraffic
+        expr: |
+          sum(rate(http_requests_total{service="api-gateway"}[5m])) > 100
+        for: 5m
+        labels:
+          severity: info
+          category: traffic
+        annotations:
+          summary: "API Gateway experiencing high traffic"
+          description: "API Gateway is handling {{ $value }} requests/sec (threshold: 100/sec)"
+
+      # No Requests (Service Might Be Idle)
+      - alert: NoRecentRequests
+        expr: |
+          sum(rate(http_requests_total[5m])) by (service) == 0
+        for: 10m
+        labels:
+          severity: info
+          category: availability
+        annotations:
+          summary: "No recent requests to {{ $labels.service }}"
+          description: "{{ $labels.service }} has not received any requests in the last 10 minutes"
+
+  - name: healthconnect_healthcare_specific
+    interval: 1m
+    rules:
+      # Appointment Service Issues
+      - alert: AppointmentServiceDown
+        expr: up{job="appointment-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: healthcare
+        annotations:
+          summary: "CRITICAL: Appointment Service is down"
+          description: "Appointment booking is currently unavailable. Patient appointments cannot be scheduled."
+
+      # Patient Service Issues
+      - alert: PatientServiceDown
+        expr: up{job="patient-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: healthcare
+        annotations:
+          summary: "CRITICAL: Patient Service is down"
+          description: "Patient data access is currently unavailable."
+
+      # Doctor Service Issues
+      - alert: DoctorServiceDown
+        expr: up{job="doctor-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: healthcare
+        annotations:
+          summary: "CRITICAL: Doctor Service is down"
+          description: "Doctor information access is currently unavailable."
+
+      # Pharmacy Service Issues
+      - alert: PharmacyServiceDown
+        expr: up{job="pharmacy-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: healthcare
+        annotations:
+          summary: "CRITICAL: Pharmacy Service is down"
+          description: "Prescription management is currently unavailable."
+
+      # Authentication Service Critical
+      - alert: AuthServiceDown
+        expr: up{job="auth-service"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          category: security
+        annotations:
+          summary: "CRITICAL: Authentication Service is down"
+          description: "User authentication is unavailable. Users cannot log in."
+
+      # Multiple Services Down
+      - alert: MultipleServicesDown
+        expr: count(up{job=~".*-service"} == 0) >= 2
+        for: 1m
+        labels:
+          severity: critical
+          category: system
+        annotations:
+          summary: "CRITICAL: Multiple services are down"
+          description: "{{ $value }} services are currently down. System stability compromised."

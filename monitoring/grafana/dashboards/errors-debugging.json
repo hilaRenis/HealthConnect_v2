@@ -1,0 +1,233 @@
+{
+  "dashboard": {
+    "title": "HealthConnect - Errors & Debugging",
+    "tags": ["healthconnect", "errors", "debugging"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "editable": true,
+    "panels": [
+      {
+        "id": 1,
+        "gridPos": { "h": 6, "w": 8, "x": 0, "y": 0 },
+        "type": "stat",
+        "title": "Total Errors (5m)",
+        "targets": [
+          {
+            "expr": "sum(increase(http_requests_total{status_code=~\"4..|5..\"}[5m]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "green" },
+                { "value": 10, "color": "yellow" },
+                { "value": 50, "color": "red" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "gridPos": { "h": 6, "w": 8, "x": 8, "y": 0 },
+        "type": "stat",
+        "title": "4xx Errors (Client)",
+        "targets": [
+          {
+            "expr": "sum(increase(http_requests_total{status_code=~\"4..\"}[5m]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "orange"
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "gridPos": { "h": 6, "w": 8, "x": 16, "y": 0 },
+        "type": "stat",
+        "title": "5xx Errors (Server)",
+        "targets": [
+          {
+            "expr": "sum(increase(http_requests_total{status_code=~\"5..\"}[5m]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "green" },
+                { "value": 1, "color": "yellow" },
+                { "value": 10, "color": "red" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+        "type": "timeseries",
+        "title": "Error Rate by Service",
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{status_code=~\"4..|5..\"}[5m])) by (service)",
+            "legendFormat": "{{service}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "custom": {
+              "drawStyle": "line",
+              "fillOpacity": 15
+            }
+          }
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "right",
+            "calcs": ["mean", "max", "last"]
+          }
+        }
+      },
+      {
+        "id": 5,
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+        "type": "timeseries",
+        "title": "Error Breakdown by Status Code",
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{status_code=~\"4..|5..\"}[5m])) by (status_code)",
+            "legendFormat": "{{status_code}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "custom": {
+              "fillOpacity": 20,
+              "stacking": { "mode": "normal" }
+            }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+        "type": "table",
+        "title": "Top Failing Endpoints",
+        "targets": [
+          {
+            "expr": "topk(15, sum(increase(http_requests_total{status_code=~\"4..|5..\"}[5m])) by (service, route, status_code))",
+            "refId": "A",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "options": {
+          "showHeader": true,
+          "sortBy": [
+            {
+              "displayName": "Value",
+              "desc": true
+            }
+          ]
+        },
+        "fieldConfig": {
+          "overrides": [
+            {
+              "matcher": { "id": "byName", "options": "Value" },
+              "properties": [
+                { "id": "displayName", "value": "Error Count" },
+                {
+                  "id": "custom.displayMode",
+                  "value": "gradient-gauge"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": 7,
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+        "type": "timeseries",
+        "title": "Success Rate % by Service",
+        "targets": [
+          {
+            "expr": "100 * sum(rate(http_requests_total{status_code=~\"2..\"}[5m])) by (service) / sum(rate(http_requests_total[5m])) by (service)",
+            "legendFormat": "{{service}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "custom": {
+              "drawStyle": "line"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "red" },
+                { "value": 90, "color": "yellow" },
+                { "value": 99, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 8,
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+        "type": "timeseries",
+        "title": "Authentication Failures",
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{service=\"auth-service\", status_code=~\"4..|5..\"}[5m])) by (status_code)",
+            "legendFormat": "{{status_code}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps"
+          }
+        }
+      }
+    ],
+    "schemaVersion": 30,
+    "version": 1
+  }
+}

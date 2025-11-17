@@ -1,0 +1,249 @@
+{
+  "dashboard": {
+    "title": "HealthConnect - Business Metrics",
+    "tags": ["healthconnect", "business", "healthcare"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "editable": true,
+    "panels": [
+      {
+        "id": 1,
+        "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+        "type": "stat",
+        "title": "Authentication Requests (5m)",
+        "targets": [
+          {
+            "expr": "sum(increase(http_requests_total{service=\"auth-service\", route=~\".*/login|.*/register\"}[5m]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 2,
+        "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+        "type": "stat",
+        "title": "Appointment Requests (5m)",
+        "targets": [
+          {
+            "expr": "sum(increase(http_requests_total{service=\"appointment-service\"}[5m]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "blue" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+        "type": "stat",
+        "title": "Patient Queries (5m)",
+        "targets": [
+          {
+            "expr": "sum(increase(http_requests_total{service=\"patient-service\"}[5m]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 4,
+        "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+        "type": "stat",
+        "title": "Doctor Queries (5m)",
+        "targets": [
+          {
+            "expr": "sum(increase(http_requests_total{service=\"doctor-service\"}[5m]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 5,
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+        "type": "timeseries",
+        "title": "API Gateway Traffic by Endpoint",
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{service=\"api-gateway\"}[5m])) by (route)",
+            "legendFormat": "{{route}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "custom": {
+              "drawStyle": "line",
+              "fillOpacity": 10
+            }
+          }
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "right",
+            "calcs": ["mean", "last"]
+          }
+        }
+      },
+      {
+        "id": 6,
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+        "type": "piechart",
+        "title": "Request Distribution by Service",
+        "targets": [
+          {
+            "expr": "sum(increase(http_requests_total[5m])) by (service)",
+            "legendFormat": "{{service}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "right",
+            "values": ["value", "percent"]
+          }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 7,
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+        "type": "timeseries",
+        "title": "Authentication Success vs Failures",
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{service=\"auth-service\", status_code=~\"2..\"}[5m]))",
+            "legendFormat": "Success (2xx)",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(http_requests_total{service=\"auth-service\", status_code=~\"4..|5..\"}[5m]))",
+            "legendFormat": "Failures (4xx/5xx)",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps"
+          },
+          "overrides": [
+            {
+              "matcher": { "id": "byName", "options": "Failures (4xx/5xx)" },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": { "mode": "fixed", "fixedColor": "red" }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": 8,
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+        "type": "timeseries",
+        "title": "Pharmacy Service Activity",
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{service=\"pharmacy-service\"}[5m])) by (method)",
+            "legendFormat": "{{method}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps"
+          }
+        }
+      },
+      {
+        "id": 9,
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
+        "type": "timeseries",
+        "title": "HTTP Status Codes Over Time",
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{status_code=~\"2..\"}[5m]))",
+            "legendFormat": "2xx Success",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(http_requests_total{status_code=~\"3..\"}[5m]))",
+            "legendFormat": "3xx Redirect",
+            "refId": "B"
+          },
+          {
+            "expr": "sum(rate(http_requests_total{status_code=~\"4..\"}[5m]))",
+            "legendFormat": "4xx Client Error",
+            "refId": "C"
+          },
+          {
+            "expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[5m]))",
+            "legendFormat": "5xx Server Error",
+            "refId": "D"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "custom": {
+              "fillOpacity": 20,
+              "stacking": { "mode": "normal" }
+            }
+          }
+        }
+      }
+    ],
+    "schemaVersion": 30,
+    "version": 1
+  }
+}

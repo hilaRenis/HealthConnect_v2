@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const {nanoid} = require('nanoid');
+const rateLimit = require('express-rate-limit');
 const {createApp} = require('./http');
 const db = require('./db');
 const { publishEvent } = require('./kafka');
@@ -8,6 +9,31 @@ const USER_EVENTS_TOPIC = 'user.events';
 
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'devsecret';
+
+// Rate limiters
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5, // 5 attempts per 15 minutes
+    message: { error: 'Too many login attempts, please try again after 15 minutes' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+const registerLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 10, // 10 registrations per hour
+    message: { error: 'Too many registration attempts, please try again later' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+const generalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // 100 requests per 15 minutes
+    message: { error: 'Too many requests, please try again later' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 
 function issueToken(user) {
     return jwt.sign({sub: user.id, role: user.role, name: user.name, email: user.email}, JWT_SECRET, {expiresIn: '2h'});
@@ -37,7 +63,10 @@ function authGuard(roleOrRoles) {
 }
 
 function routes(app) {
-    app.post('/auth/register-doctor', authGuard('admin'), async (req, res) => {
+    // Apply general rate limiter to all routes
+    app.use(generalLimiter);
+
+    app.post('/auth/register-doctor', registerLimiter, authGuard('admin'), async (req, res) => {
         const {name, email, password} = req.body || {};
         if (!name || !email || !password) return res.status(400).json({error: 'Missing fields'});
         const {rows} = await db.query('SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL', [email]);
@@ -131,7 +160,7 @@ function routes(app) {
         res.status(204).send();
     });
 
-    app.post('/auth/register-patient', authGuard(['doctor', 'admin']), async (req, res) => {
+    app.post('/auth/register-patient', registerLimiter, authGuard(['doctor', 'admin']), async (req, res) => {
         const {name, email, password} = req.body || {};
         if (!name || !email || !password) return res.status(400).json({error: 'Missing fields'});
         const {rows} = await db.query('SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL', [email]);
@@ -150,7 +179,7 @@ function routes(app) {
         res.status(201).json({id: user.id});
     });
 
-    app.post('/auth/login', async (req, res) => {
+    app.post('/auth/login', loginLimiter, async (req, res) => {
         console.log('login', req.body);
         const {email, password} = req.body || {};
         const {rows} = await db.query('SELECT * FROM users WHERE email = $1 AND passwordHash = $2 AND deleted_at IS NULL', [email, password]);

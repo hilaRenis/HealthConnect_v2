@@ -1,9 +1,16 @@
 // src/http.js
 const express = require('express');
+const helmet = require('helmet');
+const xssClean = require('xss-clean');
 const { register, metricsMiddleware } = require('./metrics');
 
 function createApp({ name, routes, port }) {
   const app = express();
+
+  // Security middleware
+  app.use(helmet());
+  app.use(xssClean());
+
   app.use(express.json());
 
   // Metrics middleware

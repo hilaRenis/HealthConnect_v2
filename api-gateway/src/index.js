@@ -1,11 +1,38 @@
 const express = require('express');
 const {createProxyMiddleware} = require('http-proxy-middleware');
 const jwt = require('jsonwebtoken');
+const helmet = require('helmet');
+const xssClean = require('xss-clean');
+const rateLimit = require('express-rate-limit');
 const { register, metricsMiddleware } = require('./metrics');
 
 const app = express();
 
+// Security middleware
+app.use(helmet());
+app.use(xssClean());
+app.use(express.json());
+
 const JWT_SECRET = process.env.JWT_SECRET || 'devsecret';
+
+// Rate limiters
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5, // 5 login attempts per 15 minutes
+    message: { error: 'Too many login attempts, please try again after 15 minutes' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req) => req.path !== '/api/auth/login'
+});
+
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // 100 requests per 15 minutes per IP
+    message: { error: 'Too many requests from this IP, please try again later' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req) => req.path === '/health' || req.path === '/metrics'
+});
 
 const map = {
     '/api/patients': process.env.PATIENT_URL,
@@ -40,6 +67,10 @@ app.get('/metrics', async (req, res) => {
     res.set('Content-Type', register.contentType);
     res.end(await register.metrics());
 });
+
+// Apply rate limiters
+app.use(loginLimiter);
+app.use(apiLimiter);
 
 app.use(authGuard);
 

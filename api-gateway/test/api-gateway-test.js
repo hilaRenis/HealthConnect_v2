@@ -147,7 +147,9 @@ async function runTests() {
         // Start API Gateway
         console.log('Starting API Gateway...');
         const { spawn } = require('child_process');
-        const gatewayProcess = spawn('node', ['api-gateway/src/index.js'], {
+        const path = require('path');
+        const gatewayIndexPath = path.join(__dirname, '..', 'src', 'index.js');
+        const gatewayProcess = spawn('node', [gatewayIndexPath], {
             env: {
                 ...process.env,
                 PORT: '8080',

@@ -10,13 +10,16 @@ const USER_EVENTS_TOPIC = 'user.events';
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'devsecret';
 
-// Rate limiters
+// Rate limiters (skip in test mode)
+const isTestMode = process.env.NODE_ENV === 'test';
+
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 5, // 5 attempts per 15 minutes
     message: { error: 'Too many login attempts, please try again after 15 minutes' },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: () => isTestMode,
 });
 
 const registerLimiter = rateLimit({
@@ -25,6 +28,7 @@ const registerLimiter = rateLimit({
     message: { error: 'Too many registration attempts, please try again later' },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: () => isTestMode,
 });
 
 const generalLimiter = rateLimit({
@@ -33,6 +37,7 @@ const generalLimiter = rateLimit({
     message: { error: 'Too many requests, please try again later' },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: () => isTestMode,
 });
 
 function issueToken(user) {

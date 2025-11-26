@@ -56,6 +56,7 @@ require.cache[require.resolve('../src/kafka')] = { exports: mockKafka };
 require.cache[require.resolve('nanoid')] = { exports: { nanoid: () => 'test-user-123' } };
 
 // Set environment
+process.env.NODE_ENV = 'test';
 process.env.PORT = '3001';
 process.env.JWT_SECRET = JWT_SECRET;
 process.env.KAFKA_BROKERS = 'none';

@@ -2,16 +2,17 @@ const express = require('express');
 const {createProxyMiddleware} = require('http-proxy-middleware');
 const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
-const xssClean = require('xss-clean');
 const rateLimit = require('express-rate-limit');
 const { register, metricsMiddleware } = require('./metrics');
 
 const app = express();
 
 // Security middleware
-app.use(helmet());
-app.use(xssClean());
-app.use(express.json());
+app.use(helmet({
+    contentSecurityPolicy: false, // Disable CSP for API Gateway (proxy only)
+}));
+// Note: xss-clean not needed on API Gateway since we're just proxying requests
+// XSS protection is applied at the individual service level
 
 const JWT_SECRET = process.env.JWT_SECRET || 'devsecret';
 

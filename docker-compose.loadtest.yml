@@ -1,0 +1,35 @@
+version: "3.9"
+
+# Override file for load testing
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d
+
+services:
+  api-gateway:
+    environment:
+      - NODE_ENV=loadtest
+      - DISABLE_RATE_LIMIT=true
+
+  auth-service:
+    environment:
+      - NODE_ENV=loadtest
+      - DISABLE_RATE_LIMIT=true
+
+  patient-service:
+    environment:
+      - NODE_ENV=loadtest
+
+  doctor-service:
+    environment:
+      - NODE_ENV=loadtest
+
+  appointment-service:
+    environment:
+      - NODE_ENV=loadtest
+
+  pharmacy-service:
+    environment:
+      - NODE_ENV=loadtest
+
+  admin-service:
+    environment:
+      - NODE_ENV=loadtest

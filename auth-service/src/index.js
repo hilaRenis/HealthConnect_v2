@@ -10,8 +10,8 @@ const USER_EVENTS_TOPIC = 'user.events';
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'devsecret';
 
-// Rate limiters (skip in test mode)
-const isTestMode = process.env.NODE_ENV === 'test';
+// Rate limiters (skip in test/loadtest mode)
+const isTestMode = process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'loadtest' || process.env.DISABLE_RATE_LIMIT === 'true';
 
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes

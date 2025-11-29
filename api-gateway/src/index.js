@@ -16,6 +16,9 @@ app.use(helmet({
 
 const JWT_SECRET = process.env.JWT_SECRET || 'devsecret';
 
+// Check if rate limiting should be disabled (test/loadtest mode)
+const disableRateLimit = process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'loadtest' || process.env.DISABLE_RATE_LIMIT === 'true';
+
 // Rate limiters
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -23,7 +26,7 @@ const loginLimiter = rateLimit({
     message: { error: 'Too many login attempts, please try again after 15 minutes' },
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => req.path !== '/api/auth/login'
+    skip: (req) => disableRateLimit || req.path !== '/api/auth/login'
 });
 
 const apiLimiter = rateLimit({
@@ -32,7 +35,7 @@ const apiLimiter = rateLimit({
     message: { error: 'Too many requests from this IP, please try again later' },
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => req.path === '/health' || req.path === '/metrics'
+    skip: (req) => disableRateLimit || req.path === '/health' || req.path === '/metrics'
 });
 
 const map = {

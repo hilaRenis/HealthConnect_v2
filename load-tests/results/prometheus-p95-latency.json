@@ -1,0 +1,71 @@
+{
+    "status":  "success",
+    "data":  {
+                 "resultType":  "vector",
+                 "result":  [
+                                {
+                                    "metric":  {
+                                                   "service":  "auth-service"
+                                               },
+                                    "value":  [
+                                                  1764291801.005,
+                                                  "0.014714285714285787"
+                                              ]
+                                },
+                                {
+                                    "metric":  {
+                                                   "service":  "patient-service"
+                                               },
+                                    "value":  [
+                                                  1764291801.005,
+                                                  "0.11999999999999875"
+                                              ]
+                                },
+                                {
+                                    "metric":  {
+                                                   "service":  "doctor-service"
+                                               },
+                                    "value":  [
+                                                  1764291801.005,
+                                                  "0.011999999999999874"
+                                              ]
+                                },
+                                {
+                                    "metric":  {
+                                                   "service":  "appointment-service"
+                                               },
+                                    "value":  [
+                                                  1764291801.005,
+                                                  "0.030999999999999958"
+                                              ]
+                                },
+                                {
+                                    "metric":  {
+                                                   "service":  "pharmacy-service"
+                                               },
+                                    "value":  [
+                                                  1764291801.005,
+                                                  "0.05249999999999996"
+                                              ]
+                                },
+                                {
+                                    "metric":  {
+                                                   "service":  "api-gateway"
+                                               },
+                                    "value":  [
+                                                  1764291801.005,
+                                                  "0.07998877125441116"
+                                              ]
+                                },
+                                {
+                                    "metric":  {
+                                                   "service":  "admin-service"
+                                               },
+                                    "value":  [
+                                                  1764291801.005,
+                                                  "0.11999999999999875"
+                                              ]
+                                }
+                            ]
+             }
+}

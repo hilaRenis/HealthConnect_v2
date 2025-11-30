@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const {nanoid} = require('nanoid');
 const rateLimit = require('express-rate-limit');
+const bcrypt = require('bcrypt');
 const {createApp} = require('./http');
 const db = require('./db');
 const { publishEvent } = require('./kafka');
@@ -40,6 +41,32 @@ const generalLimiter = rateLimit({
     skip: () => isTestMode,
 });
 
+// Password validation
+function validatePassword(password) {
+    if (!password || password.length < 8) {
+        return 'Password must be at least 8 characters long';
+    }
+    if (!/[A-Z]/.test(password)) {
+        return 'Password must contain at least one uppercase letter';
+    }
+    if (!/[a-z]/.test(password)) {
+        return 'Password must contain at least one lowercase letter';
+    }
+    if (!/[0-9]/.test(password)) {
+        return 'Password must contain at least one number';
+    }
+    return null;
+}
+
+async function hashPassword(password) {
+    const SALT_ROUNDS = 10;
+    return await bcrypt.hash(password, SALT_ROUNDS);
+}
+
+async function verifyPassword(password, hash) {
+    return await bcrypt.compare(password, hash);
+}
+
 function issueToken(user) {
     return jwt.sign({sub: user.id, role: user.role, name: user.name, email: user.email}, JWT_SECRET, {expiresIn: '2h'});
 }
@@ -74,11 +101,21 @@ function routes(app) {
     app.post('/auth/register-doctor', registerLimiter, authGuard('admin'), async (req, res) => {
         const {name, email, password} = req.body || {};
         if (!name || !email || !password) return res.status(400).json({error: 'Missing fields'});
+
+        // Validate password complexity
+        const passwordError = validatePassword(password);
+        if (passwordError) return res.status(400).json({error: passwordError});
+
         const {rows} = await db.query('SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL', [email]);
         if (rows.length > 0) return res.status(409).json({error: 'Email exists'});
-        const user = {id: nanoid(), role: 'doctor', name, email, passwordHash: password}; // demo only
+
+        // Hash password before storing
+        const passwordHash = await hashPassword(password);
+        const user = {id: nanoid(), role: 'doctor', name, email, passwordHash};
+
         await db.query('INSERT INTO users (id, role, name, email, passwordHash) VALUES ($1, $2, $3, $4, $5)',
             [user.id, user.role, user.name, user.email, user.passwordHash]);
+
         await publishEvent(USER_EVENTS_TOPIC, {
             type: 'USER_CREATED',
             id: user.id,
@@ -87,6 +124,7 @@ function routes(app) {
             email: user.email,
         });
 
+        console.log(`[SECURITY] Doctor registered: ${user.id} by admin: ${req.user?.sub}`);
         res.status(201).json({id: user.id});
     });
 
@@ -115,8 +153,14 @@ function routes(app) {
         params.push(email);
 
         if (password) {
+            // Validate password complexity
+            const passwordError = validatePassword(password);
+            if (passwordError) return res.status(400).json({error: passwordError});
+
+            // Hash password before storing
+            const passwordHash = await hashPassword(password);
             updates.push(`passwordHash = $${params.length + 1}`);
-            params.push(password);
+            params.push(passwordHash);
         }
 
         params.push(id);
@@ -142,6 +186,7 @@ function routes(app) {
             email: updatedUser.email,
         });
 
+        console.log(`[SECURITY] User updated: ${id} by admin: ${req.user?.sub}`);
         res.json(updatedUser);
     });
 
@@ -162,17 +207,28 @@ function routes(app) {
             deletedAt: new Date().toISOString(),
         });
 
+        console.log(`[SECURITY] User deleted: ${id} by admin: ${req.user?.sub}`);
         res.status(204).send();
     });
 
     app.post('/auth/register-patient', registerLimiter, authGuard(['doctor', 'admin']), async (req, res) => {
         const {name, email, password} = req.body || {};
         if (!name || !email || !password) return res.status(400).json({error: 'Missing fields'});
+
+        // Validate password complexity
+        const passwordError = validatePassword(password);
+        if (passwordError) return res.status(400).json({error: passwordError});
+
         const {rows} = await db.query('SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL', [email]);
         if (rows.length > 0) return res.status(409).json({error: 'Email exists'});
-        const user = {id: nanoid(), role: 'patient', name, email, passwordHash: password}; // demo only
+
+        // Hash password before storing
+        const passwordHash = await hashPassword(password);
+        const user = {id: nanoid(), role: 'patient', name, email, passwordHash};
+
         await db.query('INSERT INTO users (id, role, name, email, passwordHash) VALUES ($1, $2, $3, $4, $5)',
             [user.id, user.role, user.name, user.email, user.passwordHash]);
+
         await publishEvent(USER_EVENTS_TOPIC, {
             type: 'USER_CREATED',
             id: user.id,
@@ -181,15 +237,34 @@ function routes(app) {
             email: user.email,
         });
 
+        console.log(`[SECURITY] Patient registered: ${user.id} by: ${req.user?.sub}`);
         res.status(201).json({id: user.id});
     });
 
     app.post('/auth/login', loginLimiter, async (req, res) => {
-        console.log('login', req.body);
         const {email, password} = req.body || {};
-        const {rows} = await db.query('SELECT * FROM users WHERE email = $1 AND passwordHash = $2 AND deleted_at IS NULL', [email, password]);
+
+        if (!email || !password) {
+            console.log(`[SECURITY] Login attempt with missing credentials from IP: ${req.ip}`);
+            return res.status(400).json({error: 'Missing email or password'});
+        }
+
+        const {rows} = await db.query('SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL', [email]);
         const user = rows[0];
-        if (!user) return res.status(401).json({error: 'Invalid credentials'});
+
+        if (!user) {
+            console.log(`[SECURITY] Failed login attempt - user not found: ${email} from IP: ${req.ip}`);
+            return res.status(401).json({error: 'Invalid credentials'});
+        }
+
+        // Verify password using bcrypt
+        const isValidPassword = await verifyPassword(password, user.passwordhash);
+        if (!isValidPassword) {
+            console.log(`[SECURITY] Failed login attempt - invalid password for: ${email} from IP: ${req.ip}`);
+            return res.status(401).json({error: 'Invalid credentials'});
+        }
+
+        console.log(`[SECURITY] Successful login: ${user.id} (${user.email}) from IP: ${req.ip}`);
         res.json({token: issueToken(user)});
     });
 

@@ -3,14 +3,52 @@ const {createProxyMiddleware} = require('http-proxy-middleware');
 const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const cors = require('cors');
 const { register, metricsMiddleware } = require('./metrics');
 
 const app = express();
 
+// CORS Configuration
+const corsOptions = {
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl)
+        if (!origin) return callback(null, true);
+
+        const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3002').split(',');
+
+        console.log(`[CORS DEBUG] Received origin: "${origin}"`);
+        console.log(`[CORS DEBUG] Allowed origins: ${JSON.stringify(allowedOrigins)}`);
+
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            console.log(`[CORS DEBUG] Origin ALLOWED: ${origin}`);
+            callback(null, true);
+        } else {
+            console.log(`[SECURITY] CORS blocked origin: ${origin}`);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    maxAge: 86400 // 24 hours
+};
+
+app.use(cors(corsOptions));
+
 // Security middleware
 app.use(helmet({
     contentSecurityPolicy: false, // Disable CSP for API Gateway (proxy only)
+    hsts: {
+        maxAge: 31536000,
+        includeSubDomains: true,
+        preload: true
+    }
 }));
+
+// NOTE: Do NOT parse request bodies in the API Gateway
+// The proxy middleware needs the raw body stream to forward to backend services
+// Body parsing happens in the individual microservices
+
 // Note: xss-clean not needed on API Gateway since we're just proxying requests
 // XSS protection is applied at the individual service level
 
@@ -54,12 +92,16 @@ function isPublic(req) {
 function authGuard(req, res, next) {
     if (isPublic(req)) return next();
     const auth = req.headers.authorization || '';
-    if (!auth.startsWith('Bearer ')) return res.status(401).json({error: 'No token'});
+    if (!auth.startsWith('Bearer ')) {
+        console.log(`[SECURITY] Unauthorized access attempt to ${req.path} from IP: ${req.ip}`);
+        return res.status(401).json({error: 'No token'});
+    }
     try {
         req.user = jwt.verify(auth.slice(7), JWT_SECRET);
         req.headers['x-user'] = JSON.stringify(req.user);
         next();
     } catch (e) {
+        console.log(`[SECURITY] Invalid token for ${req.path} from IP: ${req.ip}`);
         return res.status(401).json({error: 'Invalid token'});
     }
 }
@@ -80,7 +122,10 @@ app.use(authGuard);
 
 // Optional coarse role guard example
 app.use((req, res, next) => {
-    if (req.path.startsWith('/api/doctors') && req.user?.role !== 'doctor') return res.status(403).json({error: 'Forbidden'});
+    if (req.path.startsWith('/api/doctors') && req.user?.role !== 'doctor' && req.user?.role !== 'admin') {
+        console.log(`[SECURITY] Forbidden access attempt: user ${req.user?.sub} (${req.user?.role}) tried to access ${req.path}`);
+        return res.status(403).json({error: 'Forbidden'});
+    }
     next();
 });
 

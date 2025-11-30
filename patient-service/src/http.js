@@ -11,7 +11,9 @@ function createApp({ name, routes, port }) {
   app.use(helmet());
   app.use(xssClean());
 
-  app.use(express.json());
+  // Request body size limits
+  app.use(express.json({ limit: '1mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
   // Metrics middleware
   app.use(metricsMiddleware(name));
@@ -39,8 +41,26 @@ function createApp({ name, routes, port }) {
 
   // Error handler
   app.use((err, req, res, next) => {
-    console.error(`[${name}]`, err && err.stack || err);
-    res.status(err.status || 500).json({ error: err.message || 'InternalError' });
+    // Log the full error internally
+    console.error(`[${name}] ERROR:`, err && err.stack || err);
+
+    // Don't expose error details in production
+    const isDev = process.env.NODE_ENV === 'development';
+    const statusCode = err.status || 500;
+
+    if (statusCode >= 500) {
+      // Server errors - don't expose details
+      res.status(statusCode).json({
+        error: 'Internal server error',
+        ...(isDev && { details: err.message, stack: err.stack })
+      });
+    } else {
+      // Client errors - safe to show message
+      res.status(statusCode).json({
+        error: err.message || 'Bad request',
+        ...(isDev && { stack: err.stack })
+      });
+    }
   });
 
   app.listen(port, () => console.log(`${name} listening on ${port}`));

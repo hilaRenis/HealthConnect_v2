@@ -12,7 +12,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique_active
   WHERE deleted_at IS NULL;
 
 INSERT INTO users (id, role, name, email, passwordHash)
-SELECT 'default-admin', 'admin', 'Admin', 'admin@healthconnect.com', 'adminpass'
+SELECT 'default-admin', 'admin', 'Admin', 'admin@healthconnect.com', '$2b$10$RMS3wYHIekDRIBzruztrhOBs4sb.V3eKwrxndWuXWLzNEjLmxX2sC'
 WHERE NOT EXISTS (
   SELECT 1 FROM users WHERE email = 'admin@healthconnect.com' AND deleted_at IS NULL
 );

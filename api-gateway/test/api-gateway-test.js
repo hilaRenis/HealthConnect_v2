@@ -28,8 +28,15 @@ function createMockService(name, port) {
                 req.on('end', () => {
                     try {
                         const data = JSON.parse(body);
-                        if (data.email === 'test@test.com' && data.password === 'pass123') {
-                            const token = jwt.sign({ userId: '123', email: data.email, role: 'patient' }, JWT_SECRET);
+                        // Validate email and password are present
+                        if (!data.email || !data.password) {
+                            res.writeHead(400, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify({ error: 'Missing email or password' }));
+                            return;
+                        }
+                        // Mock valid credentials for testing
+                        if (data.email === 'test@test.com' && data.password === 'TestPass123') {
+                            const token = jwt.sign({ sub: '123', email: data.email, role: 'patient' }, JWT_SECRET);
                             res.writeHead(200, { 'Content-Type': 'application/json' });
                             res.end(JSON.stringify({ token }));
                         } else {
@@ -197,7 +204,7 @@ async function runTests() {
                 headers: { 'Content-Type': 'application/json' }
             }, {
                 email: 'test@test.com',
-                password: 'pass123'
+                password: 'TestPass123'
             });
 
             assert.strictEqual(res.statusCode, 200);
@@ -416,7 +423,7 @@ async function runTests() {
                 headers: { 'Content-Type': 'application/json' }
             }, {
                 email: 'test@test.com',
-                password: 'pass123'
+                password: 'TestPass123'
             });
 
             assert.strictEqual(res.statusCode, 200);

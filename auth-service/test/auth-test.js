@@ -131,7 +131,7 @@ async function runTests() {
 
         const res = await makeRequest('POST', '/auth/register-doctor', {
             user: { sub: 'admin-1', role: 'admin' },
-            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'pass123' }
+            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'Password123' }
         });
 
         assert.strictEqual(res.status, 201);
@@ -154,7 +154,7 @@ async function runTests() {
 
         const res = await makeRequest('POST', '/auth/register-doctor', {
             user: { sub: 'admin-1', role: 'admin' },
-            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'pass123' }
+            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'Password123' }
         });
 
         assert.strictEqual(res.status, 409);
@@ -163,7 +163,7 @@ async function runTests() {
     await test('POST /auth/register-doctor - non-admin is forbidden', async () => {
         const res = await makeRequest('POST', '/auth/register-doctor', {
             user: { sub: 'doctor-1', role: 'doctor' },
-            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'pass123' }
+            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'Password123' }
         });
 
         assert.strictEqual(res.status, 403);
@@ -210,7 +210,7 @@ async function runTests() {
 
         const res = await makeRequest('PUT', '/auth/users/user-1', {
             user: { sub: 'admin-1', role: 'admin' },
-            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'newpass' }
+            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'NewPass123' }
         });
 
         assert.strictEqual(res.status, 200);
@@ -308,7 +308,7 @@ async function runTests() {
 
         const res = await makeRequest('POST', '/auth/register-patient', {
             user: { sub: 'doctor-1', role: 'doctor' },
-            body: { name: 'John Doe', email: 'john@test.com', password: 'pass123' }
+            body: { name: 'John Doe', email: 'john@test.com', password: 'Password123' }
         });
 
         assert.strictEqual(res.status, 201);
@@ -327,7 +327,7 @@ async function runTests() {
 
         const res = await makeRequest('POST', '/auth/register-patient', {
             user: { sub: 'admin-1', role: 'admin' },
-            body: { name: 'John Doe', email: 'john@test.com', password: 'pass123' }
+            body: { name: 'John Doe', email: 'john@test.com', password: 'Password123' }
         });
 
         assert.strictEqual(res.status, 201);
@@ -349,7 +349,7 @@ async function runTests() {
 
         const res = await makeRequest('POST', '/auth/register-patient', {
             user: { sub: 'doctor-1', role: 'doctor' },
-            body: { name: 'John Doe', email: 'john@test.com', password: 'pass123' }
+            body: { name: 'John Doe', email: 'john@test.com', password: 'Password123' }
         });
 
         assert.strictEqual(res.status, 409);
@@ -358,7 +358,7 @@ async function runTests() {
     await test('POST /auth/register-patient - non-doctor/admin is forbidden', async () => {
         const res = await makeRequest('POST', '/auth/register-patient', {
             user: { sub: 'patient-1', role: 'patient' },
-            body: { name: 'John Doe', email: 'john@test.com', password: 'pass123' }
+            body: { name: 'John Doe', email: 'john@test.com', password: 'Password123' }
         });
 
         assert.strictEqual(res.status, 403);
@@ -368,19 +368,20 @@ async function runTests() {
     await test('POST /auth/login - successful login', async () => {
         mockDb.query = async function(sql) {
             // SELECT user by email
+            // Password hash for 'TestPass123'
             return {
                 rows: [{
                     id: 'user-1',
                     role: 'patient',
                     name: 'John Doe',
                     email: 'john@test.com',
-                    passwordhash: 'pass123'
+                    passwordhash: '$2b$10$YHZXTmu3n5B/3FPv5MhROOfy2XQG773z/N3WJYRe4rXVc/3moBjbO'
                 }]
             };
         };
 
         const res = await makeRequest('POST', '/auth/login', {
-            body: { email: 'john@test.com', password: 'pass123' }
+            body: { email: 'john@test.com', password: 'TestPass123' }
         });
 
         assert.strictEqual(res.status, 200);
@@ -457,7 +458,7 @@ async function runTests() {
 
         const res = await makeRequest('POST', '/auth/register-doctor', {
             headers: { Authorization: `Bearer ${token}` },
-            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'pass123' }
+            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'Password123' }
         });
 
         assert.strictEqual(res.status, 201);
@@ -466,7 +467,7 @@ async function runTests() {
     await test('authGuard - 401 with invalid Bearer token', async () => {
         const res = await makeRequest('POST', '/auth/register-doctor', {
             headers: { Authorization: 'Bearer invalidtoken' },
-            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'pass123' }
+            body: { name: 'Dr. Smith', email: 'smith@test.com', password: 'Password123' }
         });
 
         assert.strictEqual(res.status, 401);

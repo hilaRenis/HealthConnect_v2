@@ -111,6 +111,7 @@ services:
       - PHARMACY_URL=http://pharmacy-service:3005
       - ADMIN_URL=http://admin-service:3006
       - KAFKA_BROKERS=kafka:9092
+      - ALLOWED_ORIGINS=http://localhost:3010,http://localhost:3002,http://api-gateway:8080,http://web-client:80
     depends_on:
       - auth-service
       - patient-service

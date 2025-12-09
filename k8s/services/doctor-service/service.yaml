@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: doctor-service
+  namespace: healthconnect
+  labels:
+    app: doctor-service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3003
+    targetPort: 3003
+    protocol: TCP
+    name: http
+  selector:
+    app: doctor-service

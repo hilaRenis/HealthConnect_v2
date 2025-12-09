@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: appointment-db-pvc
+  namespace: healthconnect
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: appointment-db
+  namespace: healthconnect
+  labels:
+    app: appointment-db
+    tier: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: appointment-db
+  template:
+    metadata:
+      labels:
+        app: appointment-db
+        tier: database
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:13
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: password
+        - name: POSTGRES_DB
+          value: "appointment_service"
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: appointment-db-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: appointment-db
+  namespace: healthconnect
+  labels:
+    app: appointment-db
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: 5432
+    protocol: TCP
+    name: postgres
+  selector:
+    app: appointment-db

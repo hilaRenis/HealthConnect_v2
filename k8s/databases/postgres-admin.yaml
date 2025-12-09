@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: admin-db-pvc
+  namespace: healthconnect
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-db
+  namespace: healthconnect
+  labels:
+    app: admin-db
+    tier: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: admin-db
+  template:
+    metadata:
+      labels:
+        app: admin-db
+        tier: database
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:13
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: password
+        - name: POSTGRES_DB
+          value: "admin_service"
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: admin-db-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-db
+  namespace: healthconnect
+  labels:
+    app: admin-db
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: 5432
+    protocol: TCP
+    name: postgres
+  selector:
+    app: admin-db

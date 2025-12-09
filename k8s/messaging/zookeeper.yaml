@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: zookeeper-data-pvc
+  namespace: healthconnect
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: zookeeper-log-pvc
+  namespace: healthconnect
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zookeeper
+  namespace: healthconnect
+  labels:
+    app: zookeeper
+    tier: messaging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zookeeper
+  template:
+    metadata:
+      labels:
+        app: zookeeper
+        tier: messaging
+    spec:
+      containers:
+      - name: zookeeper
+        image: confluentinc/cp-zookeeper:7.6.1
+        ports:
+        - containerPort: 2181
+          name: client
+        env:
+        - name: ZOOKEEPER_CLIENT_PORT
+          value: "2181"
+        - name: ZOOKEEPER_TICK_TIME
+          value: "2000"
+        volumeMounts:
+        - name: zookeeper-data
+          mountPath: /var/lib/zookeeper/data
+        - name: zookeeper-log
+          mountPath: /var/lib/zookeeper/log
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+      volumes:
+      - name: zookeeper-data
+        persistentVolumeClaim:
+          claimName: zookeeper-data-pvc
+      - name: zookeeper-log
+        persistentVolumeClaim:
+          claimName: zookeeper-log-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper-service
+  namespace: healthconnect
+  labels:
+    app: zookeeper
+spec:
+  type: ClusterIP
+  ports:
+  - port: 2181
+    targetPort: 2181
+    protocol: TCP
+    name: client
+  selector:
+    app: zookeeper

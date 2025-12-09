@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: healthconnect-config
+  namespace: healthconnect
+data:
+  # Database Configuration
+  DB_PORT: "5432"
+  DB_USER: "postgres"
+
+  # Kafka Configuration
+  KAFKA_BROKERS: "kafka-service:9092"
+
+  # Service Ports
+  API_GATEWAY_PORT: "8080"
+  AUTH_SERVICE_PORT: "3001"
+  PATIENT_SERVICE_PORT: "3002"
+  DOCTOR_SERVICE_PORT: "3003"
+  APPOINTMENT_SERVICE_PORT: "3004"
+  PHARMACY_SERVICE_PORT: "3005"
+  ADMIN_SERVICE_PORT: "3006"
+
+  # Service URLs (for API Gateway)
+  AUTH_URL: "http://auth-service:3001"
+  PATIENT_URL: "http://patient-service:3002"
+  DOCTOR_URL: "http://doctor-service:3003"
+  APPT_URL: "http://appointment-service:3004"
+  PHARMACY_URL: "http://pharmacy-service:3005"
+  ADMIN_URL: "http://admin-service:3006"
+
+  # CORS Configuration
+  ALLOWED_ORIGINS: "http://localhost:3010,http://localhost:3002,http://api-gateway:8080"

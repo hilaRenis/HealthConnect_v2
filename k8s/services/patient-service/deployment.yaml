@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: patient-service
+  namespace: healthconnect
+  labels:
+    app: patient-service
+    tier: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: patient-service
+  template:
+    metadata:
+      labels:
+        app: patient-service
+        tier: backend
+    spec:
+      containers:
+      - name: patient-service
+        image: gcr.io/PROJECT_ID/patient-service:latest
+        ports:
+        - containerPort: 3002
+          name: http
+        env:
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: healthconnect-config
+              key: PATIENT_SERVICE_PORT
+        - name: DB_HOST
+          value: "patient-db"
+        - name: DB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: healthconnect-config
+              key: DB_PORT
+        - name: DB_USER
+          valueFrom:
+            configMapKeyRef:
+              name: healthconnect-config
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: healthconnect-secrets
+              key: DB_PASSWORD
+        - name: DB_NAME
+          value: "patient_service"
+        - name: KAFKA_BROKERS
+          valueFrom:
+            configMapKeyRef:
+              name: healthconnect-config
+              key: KAFKA_BROKERS
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3002
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3002
+          initialDelaySeconds: 10
+          periodSeconds: 5

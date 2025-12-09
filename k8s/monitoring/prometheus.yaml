@@ -1,0 +1,233 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: healthconnect
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        monitor: 'healthconnect-monitor'
+        cluster: 'gke-healthconnect'
+
+    scrape_configs:
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      - job_name: 'api-gateway'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - healthconnect
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: api-gateway
+          - source_labels: [__meta_kubernetes_pod_ip]
+            action: replace
+            target_label: __address__
+            replacement: $1:8080
+
+      - job_name: 'auth-service'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - healthconnect
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: auth-service
+          - source_labels: [__meta_kubernetes_pod_ip]
+            action: replace
+            target_label: __address__
+            replacement: $1:3001
+
+      - job_name: 'patient-service'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - healthconnect
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: patient-service
+          - source_labels: [__meta_kubernetes_pod_ip]
+            action: replace
+            target_label: __address__
+            replacement: $1:3002
+
+      - job_name: 'doctor-service'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - healthconnect
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: doctor-service
+          - source_labels: [__meta_kubernetes_pod_ip]
+            action: replace
+            target_label: __address__
+            replacement: $1:3003
+
+      - job_name: 'appointment-service'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - healthconnect
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: appointment-service
+          - source_labels: [__meta_kubernetes_pod_ip]
+            action: replace
+            target_label: __address__
+            replacement: $1:3004
+
+      - job_name: 'pharmacy-service'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - healthconnect
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: pharmacy-service
+          - source_labels: [__meta_kubernetes_pod_ip]
+            action: replace
+            target_label: __address__
+            replacement: $1:3005
+
+      - job_name: 'admin-service'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - healthconnect
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: admin-service
+          - source_labels: [__meta_kubernetes_pod_ip]
+            action: replace
+            target_label: __address__
+            replacement: $1:3006
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: healthconnect
+  labels:
+    app: prometheus
+    tier: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+        tier: monitoring
+    spec:
+      serviceAccountName: prometheus
+      containers:
+      - name: prometheus
+        image: prom/prometheus:latest
+        args:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus'
+          - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+          - '--web.console.templates=/usr/share/prometheus/consoles'
+        ports:
+        - containerPort: 9090
+          name: web
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+        - name: prometheus-storage
+          mountPath: /prometheus
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: prometheus-config
+      - name: prometheus-storage
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: healthconnect
+  labels:
+    app: prometheus
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: web
+  selector:
+    app: prometheus
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: healthconnect
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+- kind: ServiceAccount
+  name: prometheus
+  namespace: healthconnect

@@ -19,7 +19,8 @@ spec:
     spec:
       containers:
       - name: auth-service
-        image: gcr.io/PROJECT_ID/auth-service:latest
+        image: healthconnect_v2-auth-service:latest
+        imagePullPolicy: Never
         ports:
         - containerPort: 3001
           name: http

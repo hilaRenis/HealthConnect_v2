@@ -19,7 +19,8 @@ spec:
     spec:
       containers:
       - name: api-gateway
-        image: gcr.io/PROJECT_ID/api-gateway:latest
+        image: healthconnect_v2-api-gateway:latest
+        imagePullPolicy: Never
         ports:
         - containerPort: 8080
           name: http

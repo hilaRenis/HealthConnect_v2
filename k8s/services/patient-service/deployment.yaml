@@ -19,7 +19,8 @@ spec:
     spec:
       containers:
       - name: patient-service
-        image: gcr.io/PROJECT_ID/patient-service:latest
+        image: healthconnect_v2-patient-service:latest
+        imagePullPolicy: Never
         ports:
         - containerPort: 3002
           name: http

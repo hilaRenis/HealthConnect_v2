@@ -36,9 +36,9 @@
       "info": 0,
       "low": 0,
       "moderate": 0,
-      "high": 1,
+      "high": 0,
       "critical": 0,
-      "total": 1
+      "total": 0
     },
     "dependencies": {
       "prod": 109,

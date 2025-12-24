@@ -14,19 +14,34 @@ const CONNECT_TIMEOUT_MS = Number.isFinite(connectTimeoutInput) && connectTimeou
 const retryInput = Number.parseInt(process.env.KAFKA_RETRY_ATTEMPTS || '0', 10);
 const RETRY_ATTEMPTS = Number.isFinite(retryInput) && retryInput >= 0 ? retryInput : 0;
 
-const kafka = brokers.length > 0
-  ? new Kafka({
-      clientId: 'admin-service',
-      brokers,
-      connectionTimeout: CONNECT_TIMEOUT_MS,
-      retry: {
-        retries: RETRY_ATTEMPTS,
-        initialRetryTime: Math.min(100, CONNECT_TIMEOUT_MS),
-        maxRetryTime: CONNECT_TIMEOUT_MS,
-      },
-      logLevel: logLevel.ERROR,
-    })
-  : null;
+// Check if we need SASL authentication (for Confluent Cloud)
+const kafkaUsername = process.env.KAFKA_USERNAME;
+const kafkaPassword = process.env.KAFKA_PASSWORD;
+const useSsl = process.env.KAFKA_USE_SSL === 'true';
+
+const kafkaConfig = {
+  clientId: 'admin-service',
+  brokers,
+  connectionTimeout: CONNECT_TIMEOUT_MS,
+  retry: {
+    retries: RETRY_ATTEMPTS,
+    initialRetryTime: Math.min(100, CONNECT_TIMEOUT_MS),
+    maxRetryTime: CONNECT_TIMEOUT_MS,
+  },
+  logLevel: logLevel.ERROR,
+};
+
+// Add SASL/SSL if credentials provided (Confluent Cloud)
+if (kafkaUsername && kafkaPassword) {
+  kafkaConfig.sasl = {
+    mechanism: 'plain',
+    username: kafkaUsername,
+    password: kafkaPassword,
+  };
+  kafkaConfig.ssl = useSsl;
+}
+
+const kafka = brokers.length > 0 ? new Kafka(kafkaConfig) : null;
 
 let producer = null;
 let kafkaDisabled = false;

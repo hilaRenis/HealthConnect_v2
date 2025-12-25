@@ -7,6 +7,9 @@ const { register, metricsMiddleware } = require('./metrics');
 function createApp({ name, routes, port }) {
   const app = express();
 
+  // Trust proxy for Cloud Run
+  app.set('trust proxy', true);
+
   // Security middleware
   app.use(helmet());
   app.use(xssClean());

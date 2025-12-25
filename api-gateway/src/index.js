@@ -8,6 +8,9 @@ const { register, metricsMiddleware } = require('./metrics');
 
 const app = express();
 
+// Trust proxy for Cloud Run
+app.set('trust proxy', true);
+
 // CORS Configuration
 const corsOptions = {
     origin: function (origin, callback) {

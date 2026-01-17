@@ -112,6 +112,7 @@ services:
       - ADMIN_URL=http://admin-service:3006
       - KAFKA_BROKERS=kafka:9092
       - ALLOWED_ORIGINS=http://localhost:3010,http://localhost:3002,http://api-gateway:8080,http://web-client:80
+      - DISABLE_RATE_LIMIT=true
     depends_on:
       - auth-service
       - patient-service
@@ -131,6 +132,7 @@ services:
       - DB_PASSWORD=postgres
       - DB_NAME=auth_service
       - KAFKA_BROKERS=kafka:9092
+      - DISABLE_RATE_LIMIT=true
     depends_on:
       - auth-db
       - kafka
